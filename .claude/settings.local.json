@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php -i:*)",
+      "Bash(composer require:*)",
+      "Bash(php -m:*)",
+      "Bash(php analyze_excel.php:*)",
+      "Bash(docker --version:*)",
+      "Bash(where:*)",
+      "Bash(sc query postgresql*)",
+      "Bash(winget install:*)",
+      "Bash(winget source reset:*)",
+      "Bash(winget search:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(\"C:/Users/Ricardo/Downloads/postgresql-15-installer.exe\" --mode unattended --superpassword postgres123 --serverport 5432 --servicename postgresql-15)",
+      "Bash(sc query postgresql-15)",
+      "Bash(sc query:*)",
+      "Bash(findstr:*)",
+      "Bash(export PATH=\"$PATH:/c/Program Files/PostgreSQL/18/bin\")",
+      "Bash(psql:*)",
+      "Bash(cat:*)",
+      "Bash(PGPASSWORD=turnoflow123 psql:*)",
+      "Bash(php -r:*)",
+      "Bash(dir:*)",
+      "Bash(\"C:/Program Files/PostgreSQL/18/bin/psql\":*)"
+    ]
+  }
+}

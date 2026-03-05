@@ -1,0 +1,238 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * TurnoFlow - Punto de entrada principal
+ */
+
+error_reporting(E_ALL);
+ini_set('display_errors', '1');
+
+// Constantes de rutas
+define('BASE_PATH', dirname(__DIR__));
+define('BASE_URL', '/system-horario/TurnoFlow/public');
+define('APP_PATH', BASE_PATH . '/app');
+
+// Autoloader de Composer
+require_once BASE_PATH . '/vendor/autoload.php';
+
+// Configuración de base de datos
+require_once BASE_PATH . '/config/database.php';
+
+// Iniciar sesión
+session_start();
+
+// Obtener la URI
+$requestUri = $_SERVER['REQUEST_URI'];
+$basePath = '/system-horario/TurnoFlow/public';
+
+// Remover base path y query string
+$uri = parse_url($requestUri, PHP_URL_PATH);
+$uri = str_replace($basePath, '', $uri);
+$uri = $uri === '' ? '/' : $uri;
+$uri = rtrim($uri, '/') ?: '/';
+
+$method = $_SERVER['REQUEST_METHOD'];
+$routeKey = "{$method} {$uri}";
+
+// =====================
+// RUTAS PUBLICAS
+// =====================
+
+if ($routeKey === 'GET /' || $routeKey === 'GET /login') {
+    if (isset($_SESSION['user'])) {
+        header('Location: ' . BASE_URL . '/dashboard');
+        exit;
+    }
+    require_once APP_PATH . '/Controllers/AuthController.php';
+    $controller = new App\Controllers\AuthController();
+    $controller->showLogin();
+    exit;
+}
+
+if ($routeKey === 'POST /' || $routeKey === 'POST /login') {
+    require_once APP_PATH . '/Controllers/AuthController.php';
+    $controller = new App\Controllers\AuthController();
+    $controller->login();
+    exit;
+}
+
+if ($routeKey === 'GET /logout') {
+    require_once APP_PATH . '/Controllers/AuthController.php';
+    $controller = new App\Controllers\AuthController();
+    $controller->logout();
+    exit;
+}
+
+// =====================
+// VERIFICAR AUTENTICACION
+// =====================
+
+if (!isset($_SESSION['user'])) {
+    header('Location: ' . BASE_URL . '/login');
+    exit;
+}
+
+// =====================
+// RUTAS PROTEGIDAS
+// =====================
+
+// Dashboard
+if ($routeKey === 'GET /dashboard') {
+    require_once APP_PATH . '/Controllers/DashboardController.php';
+    $controller = new App\Controllers\DashboardController();
+    $controller->index();
+    exit;
+}
+
+// Campañas
+if ($routeKey === 'GET /campaigns') {
+    require_once APP_PATH . '/Controllers/CampaignController.php';
+    $controller = new App\Controllers\CampaignController();
+    $controller->index();
+    exit;
+}
+
+if ($routeKey === 'GET /campaigns/create') {
+    require_once APP_PATH . '/Controllers/CampaignController.php';
+    $controller = new App\Controllers\CampaignController();
+    $controller->create();
+    exit;
+}
+
+if ($routeKey === 'POST /campaigns') {
+    require_once APP_PATH . '/Controllers/CampaignController.php';
+    $controller = new App\Controllers\CampaignController();
+    $controller->store();
+    exit;
+}
+
+// Asesores
+if ($routeKey === 'GET /advisors') {
+    require_once APP_PATH . '/Controllers/AdvisorController.php';
+    $controller = new App\Controllers\AdvisorController();
+    $controller->index();
+    exit;
+}
+
+if ($routeKey === 'GET /advisors/create') {
+    require_once APP_PATH . '/Controllers/AdvisorController.php';
+    $controller = new App\Controllers\AdvisorController();
+    $controller->create();
+    exit;
+}
+
+if ($routeKey === 'POST /advisors') {
+    require_once APP_PATH . '/Controllers/AdvisorController.php';
+    $controller = new App\Controllers\AdvisorController();
+    $controller->store();
+    exit;
+}
+
+// Horarios
+if ($routeKey === 'GET /schedules') {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->index();
+    exit;
+}
+
+if ($routeKey === 'GET /schedules/import') {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->showImport();
+    exit;
+}
+
+if ($routeKey === 'POST /schedules/import') {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->import();
+    exit;
+}
+
+// =====================
+// RUTAS DINAMICAS
+// =====================
+
+// Campañas - editar
+if ($method === 'GET' && preg_match('#^/campaigns/(\d+)/edit$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/CampaignController.php';
+    $controller = new App\Controllers\CampaignController();
+    $controller->edit((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'POST' && preg_match('#^/campaigns/(\d+)$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/CampaignController.php';
+    $controller = new App\Controllers\CampaignController();
+    $controller->update((int)$matches[1]);
+    exit;
+}
+
+// Asesores - editar
+if ($method === 'GET' && preg_match('#^/advisors/(\d+)/edit$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/AdvisorController.php';
+    $controller = new App\Controllers\AdvisorController();
+    $controller->edit((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'POST' && preg_match('#^/advisors/(\d+)$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/AdvisorController.php';
+    $controller = new App\Controllers\AdvisorController();
+    $controller->update((int)$matches[1]);
+    exit;
+}
+
+// Asesores - restricciones
+if ($method === 'GET' && preg_match('#^/advisors/(\d+)/constraints$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/AdvisorController.php';
+    $controller = new App\Controllers\AdvisorController();
+    $controller->constraints((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'POST' && preg_match('#^/advisors/(\d+)/constraints$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/AdvisorController.php';
+    $controller = new App\Controllers\AdvisorController();
+    $controller->updateConstraints((int)$matches[1]);
+    exit;
+}
+
+// Horarios - ver detalle
+if ($method === 'GET' && preg_match('#^/schedules/(\d+)$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->show((int)$matches[1]);
+    exit;
+}
+
+// Horarios - enviar para aprobacion
+if ($method === 'GET' && preg_match('#^/schedules/(\d+)/submit$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->submit((int)$matches[1]);
+    exit;
+}
+
+// Horarios - aprobar
+if ($method === 'GET' && preg_match('#^/schedules/(\d+)/approve$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->approve((int)$matches[1]);
+    exit;
+}
+
+// Horarios - rechazar
+if ($method === 'GET' && preg_match('#^/schedules/(\d+)/reject$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->reject((int)$matches[1]);
+    exit;
+}
+
+// 404
+http_response_code(404);
+include APP_PATH . '/Views/errors/404.php';

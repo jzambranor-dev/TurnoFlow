@@ -1,0 +1,8 @@
+{
+    "name": "turnoflow/system",
+    "description": "Sistema de Gestión de Horarios",
+    "type": "project",
+    "require": {
+        "phpoffice/phpspreadsheet": "^5.5"
+    }
+}
