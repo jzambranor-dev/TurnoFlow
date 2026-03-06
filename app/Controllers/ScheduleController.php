@@ -168,4 +168,86 @@ class ScheduleController
         header('Location: ' . BASE_URL . '/schedules');
         exit;
     }
+
+    public function mySchedule(): void
+    {
+        $user = $_SESSION['user'];
+        $pdo = Database::getConnection();
+
+        // Buscar el advisor asociado a este usuario por email
+        $stmt = $pdo->prepare("
+            SELECT a.* FROM advisors a
+            WHERE LOWER(a.cedula) = LOWER(:email) OR EXISTS (
+                SELECT 1 FROM users u WHERE u.id = :user_id AND
+                (LOWER(u.email) LIKE LOWER(CONCAT('%', a.cedula, '%')) OR
+                 LOWER(a.nombres || ' ' || a.apellidos) = LOWER(u.nombre || ' ' || u.apellido))
+            )
+            LIMIT 1
+        ");
+        $stmt->execute([':email' => $user['email'], ':user_id' => $user['id']]);
+        $advisor = $stmt->fetch();
+
+        // Si no encontramos por email, buscar por nombre completo
+        if (!$advisor) {
+            $stmt = $pdo->prepare("
+                SELECT a.* FROM advisors a
+                WHERE LOWER(a.nombres || ' ' || a.apellidos) = LOWER(:nombre)
+                   OR LOWER(a.apellidos || ' ' || a.nombres) = LOWER(:nombre)
+                LIMIT 1
+            ");
+            $stmt->execute([':nombre' => $user['nombre'] . ' ' . $user['apellido']]);
+            $advisor = $stmt->fetch();
+        }
+
+        $assignments = [];
+        $currentSchedule = null;
+
+        if ($advisor) {
+            // Obtener horarios aprobados del mes actual
+            $currentMonth = date('n');
+            $currentYear = date('Y');
+
+            $stmt = $pdo->prepare("
+                SELECT sa.*, s.periodo_mes, s.periodo_anio, s.status,
+                       c.nombre as campaign_nombre
+                FROM shift_assignments sa
+                JOIN schedules s ON s.id = sa.schedule_id
+                JOIN campaigns c ON c.id = sa.campaign_id
+                WHERE sa.advisor_id = :advisor_id
+                  AND s.status = 'aprobado'
+                  AND s.periodo_mes = :mes
+                  AND s.periodo_anio = :anio
+                ORDER BY sa.fecha, sa.hora
+            ");
+            $stmt->execute([
+                ':advisor_id' => $advisor['id'],
+                ':mes' => $currentMonth,
+                ':anio' => $currentYear
+            ]);
+            $assignments = $stmt->fetchAll();
+
+            // Obtener info del horario actual
+            $stmt = $pdo->prepare("
+                SELECT s.*, c.nombre as campaign_nombre
+                FROM schedules s
+                JOIN campaigns c ON c.id = s.campaign_id
+                WHERE s.campaign_id = :campaign_id
+                  AND s.status = 'aprobado'
+                  AND s.periodo_mes = :mes
+                  AND s.periodo_anio = :anio
+                LIMIT 1
+            ");
+            $stmt->execute([
+                ':campaign_id' => $advisor['campaign_id'],
+                ':mes' => $currentMonth,
+                ':anio' => $currentYear
+            ]);
+            $currentSchedule = $stmt->fetch();
+        }
+
+        $pageTitle = 'Mi Horario';
+        $currentPage = 'my-schedule';
+
+        include APP_PATH . '/Views/schedules/my-schedule.php';
+    }
 }

@@ -130,6 +130,14 @@ if ($routeKey === 'POST /advisors') {
     exit;
 }
 
+// Mi Horario (para asesores)
+if ($routeKey === 'GET /my-schedule') {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->mySchedule();
+    exit;
+}
+
 // Horarios
 if ($routeKey === 'GET /schedules') {
     require_once APP_PATH . '/Controllers/ScheduleController.php';
@@ -149,6 +157,44 @@ if ($routeKey === 'POST /schedules/import') {
     require_once APP_PATH . '/Controllers/ScheduleController.php';
     $controller = new App\Controllers\ScheduleController();
     $controller->import();
+    exit;
+}
+
+// Reportes
+if ($routeKey === 'GET /reports') {
+    require_once APP_PATH . '/Controllers/ReportController.php';
+    $controller = new App\Controllers\ReportController();
+    $controller->index();
+    exit;
+}
+
+// Usuarios
+if ($routeKey === 'GET /users') {
+    require_once APP_PATH . '/Controllers/UserController.php';
+    $controller = new App\Controllers\UserController();
+    $controller->index();
+    exit;
+}
+
+if ($routeKey === 'GET /users/create') {
+    require_once APP_PATH . '/Controllers/UserController.php';
+    $controller = new App\Controllers\UserController();
+    $controller->create();
+    exit;
+}
+
+if ($routeKey === 'POST /users') {
+    require_once APP_PATH . '/Controllers/UserController.php';
+    $controller = new App\Controllers\UserController();
+    $controller->store();
+    exit;
+}
+
+// Configuracion
+if ($routeKey === 'GET /settings') {
+    require_once APP_PATH . '/Controllers/SettingController.php';
+    $controller = new App\Controllers\SettingController();
+    $controller->index();
     exit;
 }
 
@@ -198,6 +244,37 @@ if ($method === 'POST' && preg_match('#^/advisors/(\d+)/constraints$#', $uri, $m
     require_once APP_PATH . '/Controllers/AdvisorController.php';
     $controller = new App\Controllers\AdvisorController();
     $controller->updateConstraints((int)$matches[1]);
+    exit;
+}
+
+// Usuarios - editar
+if ($method === 'GET' && preg_match('#^/users/(\d+)/edit$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/UserController.php';
+    $controller = new App\Controllers\UserController();
+    $controller->edit((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'POST' && preg_match('#^/users/(\d+)$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/UserController.php';
+    $controller = new App\Controllers\UserController();
+    $controller->update((int)$matches[1]);
+    exit;
+}
+
+// Usuarios - resetear contrasena
+if ($method === 'POST' && preg_match('#^/users/(\d+)/reset-password$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/UserController.php';
+    $controller = new App\Controllers\UserController();
+    $controller->resetPassword((int)$matches[1]);
+    exit;
+}
+
+// Usuarios - toggle status
+if ($method === 'GET' && preg_match('#^/users/(\d+)/toggle-status$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/UserController.php';
+    $controller = new App\Controllers\UserController();
+    $controller->toggleStatus((int)$matches[1]);
     exit;
 }
 

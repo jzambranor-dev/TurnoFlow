@@ -22,7 +22,8 @@
       "Bash(PGPASSWORD=turnoflow123 psql:*)",
       "Bash(php -r:*)",
       "Bash(dir:*)",
-      "Bash(\"C:/Program Files/PostgreSQL/18/bin/psql\":*)"
+      "Bash(\"C:/Program Files/PostgreSQL/18/bin/psql\":*)",
+      "Bash(php -l:*)"
     ]
   }
 }
