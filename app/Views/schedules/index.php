@@ -31,6 +31,14 @@ ob_start();
         </div>
     </div>
 
+    <?php if (!empty($flashSuccess)): ?>
+    <div class="flash-banner flash-success"><?= htmlspecialchars($flashSuccess) ?></div>
+    <?php endif; ?>
+
+    <?php if (!empty($flashError)): ?>
+    <div class="flash-banner flash-error"><?= htmlspecialchars($flashError) ?></div>
+    <?php endif; ?>
+
     <!-- Stats Summary -->
     <div class="stats-row">
         <?php
@@ -165,7 +173,7 @@ ob_start();
                                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
                                 </a>
                                 <?php endif; ?>
-                                <?php if ($_SESSION['user']['rol'] === 'coordinador' && $schedule['status'] === 'enviado'): ?>
+                                <?php if (in_array($_SESSION['user']['rol'] ?? '', ['coordinador', 'admin'], true) && $schedule['status'] === 'enviado'): ?>
                                 <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/approve" class="action-btn action-approve" title="Aprobar">
                                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
                                 </a>
@@ -193,6 +201,27 @@ $extraStyles[] = <<<'STYLE'
     .schedules-page {
         max-width: 1400px;
         margin: 0 auto;
+    }
+
+    .flash-banner {
+        border-radius: 10px;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        border: 1px solid transparent;
+    }
+
+    .flash-success {
+        background: #ecfdf5;
+        color: #047857;
+        border-color: #a7f3d0;
+    }
+
+    .flash-error {
+        background: #fef2f2;
+        color: #b91c1c;
+        border-color: #fecaca;
     }
 
     /* Header */

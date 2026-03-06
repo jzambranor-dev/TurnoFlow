@@ -27,6 +27,14 @@ ob_start();
         </div>
     </div>
 
+    <?php if (!empty($flashSuccess)): ?>
+    <div class="flash-banner flash-success"><?= htmlspecialchars($flashSuccess) ?></div>
+    <?php endif; ?>
+
+    <?php if (!empty($flashError)): ?>
+    <div class="flash-banner flash-error"><?= htmlspecialchars($flashError) ?></div>
+    <?php endif; ?>
+
     <!-- Stats Summary -->
     <div class="stats-row">
         <?php
@@ -199,6 +207,27 @@ $extraStyles[] = <<<'STYLE'
     .advisors-page {
         max-width: 1400px;
         margin: 0 auto;
+    }
+
+    .flash-banner {
+        border-radius: 10px;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        border: 1px solid transparent;
+    }
+
+    .flash-success {
+        background: #ecfdf5;
+        color: #047857;
+        border-color: #a7f3d0;
+    }
+
+    .flash-error {
+        background: #fef2f2;
+        color: #b91c1c;
+        border-color: #fecaca;
     }
 
     .page-header { margin-bottom: 24px; }

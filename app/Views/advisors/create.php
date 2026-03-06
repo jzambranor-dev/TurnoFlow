@@ -16,6 +16,15 @@ ob_start();
             </a>
         </div>
     </div>
+
+    <?php if (!empty($flashSuccess)): ?>
+    <div class="alert alert-success mx-6 mt-6 mb-0"><?= htmlspecialchars($flashSuccess) ?></div>
+    <?php endif; ?>
+
+    <?php if (!empty($flashError)): ?>
+    <div class="alert alert-danger mx-6 mt-6 mb-0"><?= htmlspecialchars($flashError) ?></div>
+    <?php endif; ?>
+
     <form action="<?= BASE_URL ?>/advisors" method="POST">
         <div class="card-body">
             <div class="form-group row">

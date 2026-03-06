@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use Database;
+use App\Services\AuthService;
+
+require_once APP_PATH . '/Services/AuthService.php';
 
 class UserController
 {
     public function index(): void
     {
-        $this->checkAdmin();
+        AuthService::requirePermission('users.view');
 
         $pdo = Database::getConnection();
 
@@ -34,7 +37,7 @@ class UserController
 
     public function create(): void
     {
-        $this->checkAdmin();
+        AuthService::requirePermission('users.create');
 
         $pdo = Database::getConnection();
 
@@ -49,7 +52,7 @@ class UserController
 
     public function store(): void
     {
-        $this->checkAdmin();
+        AuthService::requirePermission('users.create');
 
         $nombre = trim($_POST['nombre'] ?? '');
         $apellido = trim($_POST['apellido'] ?? '');
@@ -98,7 +101,7 @@ class UserController
 
     public function edit(int $id): void
     {
-        $this->checkAdmin();
+        AuthService::requirePermission('users.edit');
 
         $pdo = Database::getConnection();
 
@@ -122,7 +125,7 @@ class UserController
 
     public function update(int $id): void
     {
-        $this->checkAdmin();
+        AuthService::requirePermission('users.edit');
 
         $nombre = trim($_POST['nombre'] ?? '');
         $apellido = trim($_POST['apellido'] ?? '');
@@ -173,7 +176,7 @@ class UserController
 
     public function resetPassword(int $id): void
     {
-        $this->checkAdmin();
+        AuthService::requirePermission('users.edit');
 
         $password = $_POST['password'] ?? '';
         $password_confirm = $_POST['password_confirm'] ?? '';
@@ -207,7 +210,7 @@ class UserController
 
     public function toggleStatus(int $id): void
     {
-        $this->checkAdmin();
+        AuthService::requirePermission('users.edit');
 
         $pdo = Database::getConnection();
 
@@ -217,14 +220,5 @@ class UserController
         $_SESSION['success'] = 'Estado actualizado correctamente';
         header('Location: ' . BASE_URL . '/users');
         exit;
-    }
-
-    private function checkAdmin(): void
-    {
-        $user = $_SESSION['user'] ?? null;
-        if (!$user || ($user['rol'] !== 'admin' && $user['rol'] !== 'coordinador')) {
-            header('Location: ' . BASE_URL . '/dashboard');
-            exit;
-        }
     }
 }

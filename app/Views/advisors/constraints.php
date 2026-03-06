@@ -40,12 +40,10 @@ ob_start();
             <div class="form-group row">
                 <label class="col-lg-3 col-form-label">Tiene VPN</label>
                 <div class="col-lg-9">
-                    <span class="switch switch-outline switch-icon switch-success">
-                        <label>
-                            <input type="checkbox" name="tiene_vpn" value="1" <?= $advisor['tiene_vpn'] ? 'checked' : '' ?>>
-                            <span></span>
-                        </label>
-                    </span>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="tiene_vpn" value="1" <?= $advisor['tiene_vpn'] ? 'checked' : '' ?> style="width: 18px; height: 18px; cursor: pointer;">
+                        <span>Si</span>
+                    </label>
                     <span class="form-text text-muted">Puede cubrir turnos nocturnos que requieren VPN</span>
                 </div>
             </div>
@@ -53,12 +51,10 @@ ob_start();
             <div class="form-group row">
                 <label class="col-lg-3 col-form-label">Permite Horas Extra</label>
                 <div class="col-lg-9">
-                    <span class="switch switch-outline switch-icon switch-success">
-                        <label>
-                            <input type="checkbox" name="permite_extras" value="1" <?= $advisor['permite_extras'] ? 'checked' : '' ?>>
-                            <span></span>
-                        </label>
-                    </span>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="permite_extras" value="1" <?= $advisor['permite_extras'] ? 'checked' : '' ?> style="width: 18px; height: 18px; cursor: pointer;">
+                        <span>Si</span>
+                    </label>
                     <span class="form-text text-muted">Puede trabajar mas de 8 horas diarias</span>
                 </div>
             </div>
@@ -72,23 +68,61 @@ ob_start();
             </div>
 
             <div class="separator separator-dashed my-8"></div>
-            <h4 class="mb-6">Dias de Descanso</h4>
+            <h4 class="mb-6">Horario Fijo de Contrato</h4>
 
             <div class="form-group row">
-                <label class="col-lg-3 col-form-label">Dias que NO trabaja</label>
+                <label class="col-lg-3 col-form-label">Rango de Horas Permitido</label>
                 <div class="col-lg-9">
-                    <div class="checkbox-inline">
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="input-group">
+                                <div class="input-group-prepend">
+                                    <span class="input-group-text">Desde</span>
+                                </div>
+                                <select name="hora_inicio_contrato" class="form-control">
+                                    <option value="">Sin restriccion</option>
+                                    <?php for ($h = 0; $h <= 23; $h++): ?>
+                                    <option value="<?= $h ?>" <?= $advisor['hora_inicio_contrato'] !== null && (int)$advisor['hora_inicio_contrato'] === $h ? 'selected' : '' ?>><?= sprintf('%02d:00', $h) ?></option>
+                                    <?php endfor; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="input-group">
+                                <div class="input-group-prepend">
+                                    <span class="input-group-text">Hasta</span>
+                                </div>
+                                <select name="hora_fin_contrato" class="form-control">
+                                    <option value="">Sin restriccion</option>
+                                    <?php for ($h = 0; $h <= 23; $h++): ?>
+                                    <option value="<?= $h ?>" <?= $advisor['hora_fin_contrato'] !== null && (int)$advisor['hora_fin_contrato'] === $h ? 'selected' : '' ?>><?= sprintf('%02d:00', $h) ?></option>
+                                    <?php endfor; ?>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <span class="form-text text-muted">Horario en que PUEDE trabajar (ej: 09:00 a 18:00 para asesores de ventas). Dejar vacio para horario flexible.</span>
+                </div>
+            </div>
+
+            <div class="separator separator-dashed my-8"></div>
+            <h4 class="mb-6">Dias Libres Fijos</h4>
+
+            <div class="form-group row">
+                <label class="col-lg-3 col-form-label">Dias de Descanso Fijos</label>
+                <div class="col-lg-9">
+                    <div style="display: flex; flex-wrap: wrap; gap: 15px;">
                         <?php
                         $dias = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo'];
                         foreach ($dias as $i => $dia):
                         ?>
-                        <label class="checkbox checkbox-outline checkbox-primary">
-                            <input type="checkbox" name="dias_descanso[]" value="<?= $i ?>" <?= in_array($i, $diasDescanso) ? 'checked' : '' ?>>
-                            <span></span><?= $dia ?>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                            <input type="checkbox" name="dias_descanso[]" value="<?= $i ?>" <?= in_array($i, $diasDescanso) ? 'checked' : '' ?> style="width: 18px; height: 18px; cursor: pointer;">
+                            <?= $dia ?>
                         </label>
                         <?php endforeach; ?>
                     </div>
-                    <span class="form-text text-muted">Seleccione los dias de descanso fijos del asesor</span>
+                    <span class="form-text text-muted">Dias que SIEMPRE libra este asesor. El motor reducira estos dias solo si es absolutamente necesario para cubrir dimensionamiento.</span>
                 </div>
             </div>
 
@@ -98,12 +132,10 @@ ob_start();
             <div class="form-group row">
                 <label class="col-lg-3 col-form-label">Tiene Restriccion Medica</label>
                 <div class="col-lg-9">
-                    <span class="switch switch-outline switch-icon switch-danger">
-                        <label>
-                            <input type="checkbox" name="tiene_restriccion_medica" value="1" id="tieneRestriccion" <?= $advisor['tiene_restriccion_medica'] ? 'checked' : '' ?>>
-                            <span></span>
-                        </label>
-                    </span>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="tiene_restriccion_medica" value="1" id="tieneRestriccion" <?= $advisor['tiene_restriccion_medica'] ? 'checked' : '' ?> style="width: 18px; height: 18px; cursor: pointer;">
+                        <span>Si</span>
+                    </label>
                 </div>
             </div>
 
@@ -178,11 +210,12 @@ $content = ob_get_clean();
 
 $extraScripts = ['
 <script>
-    $("#tieneRestriccion").on("change", function() {
-        if ($(this).is(":checked")) {
-            $("#restriccionMedicaFields").slideDown();
+    document.getElementById("tieneRestriccion").addEventListener("change", function() {
+        var fields = document.getElementById("restriccionMedicaFields");
+        if (this.checked) {
+            fields.style.display = "block";
         } else {
-            $("#restriccionMedicaFields").slideUp();
+            fields.style.display = "none";
         }
     });
 </script>

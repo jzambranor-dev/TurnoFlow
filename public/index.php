@@ -146,6 +146,13 @@ if ($routeKey === 'GET /schedules') {
     exit;
 }
 
+if ($routeKey === 'GET /schedules/generate') {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->generate();
+    exit;
+}
+
 if ($routeKey === 'GET /schedules/import') {
     require_once APP_PATH . '/Controllers/ScheduleController.php';
     $controller = new App\Controllers\ScheduleController();
@@ -195,6 +202,28 @@ if ($routeKey === 'GET /settings') {
     require_once APP_PATH . '/Controllers/SettingController.php';
     $controller = new App\Controllers\SettingController();
     $controller->index();
+    exit;
+}
+
+// Roles
+if ($routeKey === 'GET /roles') {
+    require_once APP_PATH . '/Controllers/RoleController.php';
+    $controller = new App\Controllers\RoleController();
+    $controller->index();
+    exit;
+}
+
+if ($routeKey === 'GET /roles/create') {
+    require_once APP_PATH . '/Controllers/RoleController.php';
+    $controller = new App\Controllers\RoleController();
+    $controller->create();
+    exit;
+}
+
+if ($routeKey === 'POST /roles') {
+    require_once APP_PATH . '/Controllers/RoleController.php';
+    $controller = new App\Controllers\RoleController();
+    $controller->store();
     exit;
 }
 
@@ -307,6 +336,37 @@ if ($method === 'GET' && preg_match('#^/schedules/(\d+)/reject$#', $uri, $matche
     require_once APP_PATH . '/Controllers/ScheduleController.php';
     $controller = new App\Controllers\ScheduleController();
     $controller->reject((int)$matches[1]);
+    exit;
+}
+
+// Horarios - actualizar asignaciones (API JSON)
+if ($method === 'POST' && preg_match('#^/schedules/(\d+)/assignments$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->updateAssignments((int)$matches[1]);
+    exit;
+}
+
+// Roles - editar
+if ($method === 'GET' && preg_match('#^/roles/(\d+)/edit$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/RoleController.php';
+    $controller = new App\Controllers\RoleController();
+    $controller->edit((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'POST' && preg_match('#^/roles/(\d+)$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/RoleController.php';
+    $controller = new App\Controllers\RoleController();
+    $controller->update((int)$matches[1]);
+    exit;
+}
+
+// Roles - eliminar
+if ($method === 'GET' && preg_match('#^/roles/(\d+)/delete$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/RoleController.php';
+    $controller = new App\Controllers\RoleController();
+    $controller->delete((int)$matches[1]);
     exit;
 }
 

@@ -1,684 +1,1588 @@
 <?php
 /**
- * TurnoFlow - Detalle de Horario
- * Diseno empresarial profesional
+ * TurnoFlow - Detalle de horario mensual / diario
+ * Vista mejorada con formato DESDE-HASTA para asesores
  */
 
 $pageTitle = 'Ver Horario';
 $currentPage = 'schedules';
 
-// Organizar asignaciones por fecha y asesor
-$assignmentsByDate = [];
-$advisorNames = [];
-$advisorHoursTotal = [];
+$viewMode = strtolower((string)($_GET['view'] ?? 'monthly'));
+$viewMode = in_array($viewMode, ['daily', 'advisor', 'edit']) ? $viewMode : 'monthly';
 
-foreach ($assignments as $a) {
-    $key = $a['fecha'];
-    $advisorKey = $a['advisor_id'];
-    if (!isset($assignmentsByDate[$key])) {
-        $assignmentsByDate[$key] = [];
-    }
-    if (!isset($assignmentsByDate[$key][$advisorKey])) {
-        $assignmentsByDate[$key][$advisorKey] = [];
-    }
-    $assignmentsByDate[$key][$advisorKey][] = $a['hora'];
-    $advisorNames[$advisorKey] = $a['apellidos'] . ', ' . $a['nombres'];
+// Solo permitir edicion si el horario no esta aprobado
+$canEdit = in_array($schedule['status'], ['borrador', 'rechazado'], true);
 
-    // Total de horas por asesor
-    if (!isset($advisorHoursTotal[$advisorKey])) {
-        $advisorHoursTotal[$advisorKey] = 0;
+/**
+ * Convierte array de horas [9,10,11,14,15,16] en bloques "09:00-12:00, 14:00-17:00"
+ */
+function hoursToBlocks(array $hours): string {
+    if (empty($hours)) return '';
+    sort($hours);
+
+    $blocks = [];
+    $start = $hours[0];
+    $prev = $hours[0];
+
+    for ($i = 1; $i < count($hours); $i++) {
+        if ($hours[$i] !== $prev + 1) {
+            // Fin de bloque
+            $blocks[] = sprintf('%02d:00-%02d:00', $start, $prev + 1);
+            $start = $hours[$i];
+        }
+        $prev = $hours[$i];
     }
-    $advisorHoursTotal[$advisorKey]++;
+    // Ultimo bloque
+    $blocks[] = sprintf('%02d:00-%02d:00', $start, $prev + 1);
+
+    return implode(', ', $blocks);
 }
 
-// Status config
 $statusConfig = [
     'borrador' => ['bg' => '#f1f5f9', 'color' => '#64748b', 'label' => 'Borrador'],
     'enviado' => ['bg' => '#dbeafe', 'color' => '#2563eb', 'label' => 'Enviado'],
-    'aprobado' => ['bg' => '#dcfce7', 'color' => '#16a34a', 'label' => 'Aprobado'],
-    'rechazado' => ['bg' => '#fee2e2', 'color' => '#dc2626', 'label' => 'Rechazado']
+    'aprobado' => ['bg' => '#dcfce7', 'color' => '#15803d', 'label' => 'Aprobado'],
+    'rechazado' => ['bg' => '#fee2e2', 'color' => '#b91c1c', 'label' => 'Rechazado'],
 ];
-$status = $statusConfig[$schedule['status']] ?? $statusConfig['borrador'];
+$statusInfo = $statusConfig[$schedule['status']] ?? $statusConfig['borrador'];
+
+$startDate = new DateTimeImmutable((string)$schedule['fecha_inicio']);
+$endDate = new DateTimeImmutable((string)$schedule['fecha_fin']);
+$dates = [];
+for ($cursor = $startDate; $cursor <= $endDate; $cursor = $cursor->modify('+1 day')) {
+    $dates[] = $cursor->format('Y-m-d');
+}
+
+$hours = range(0, 23);
+$weekDaysShort = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
+$weekDaysLong = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'];
+$monthsLong = [
+    1 => 'Enero',
+    2 => 'Febrero',
+    3 => 'Marzo',
+    4 => 'Abril',
+    5 => 'Mayo',
+    6 => 'Junio',
+    7 => 'Julio',
+    8 => 'Agosto',
+    9 => 'Septiembre',
+    10 => 'Octubre',
+    11 => 'Noviembre',
+    12 => 'Diciembre',
+];
+
+$advisorsMap = [];
+foreach ($campaignAdvisors as $advisor) {
+    $advisorId = (int)$advisor['id'];
+    $advisorsMap[$advisorId] = [
+        'id' => $advisorId,
+        'name' => trim((string)$advisor['apellidos'] . ' ' . (string)$advisor['nombres']),
+    ];
+}
+
+foreach ($assignments as $assignment) {
+    $advisorId = (int)$assignment['advisor_id'];
+    if (!isset($advisorsMap[$advisorId])) {
+        $advisorsMap[$advisorId] = [
+            'id' => $advisorId,
+            'name' => trim((string)$assignment['apellidos'] . ' ' . (string)$assignment['nombres']),
+        ];
+    }
+}
+
+uasort($advisorsMap, static function (array $a, array $b): int {
+    return strcasecmp($a['name'], $b['name']);
+});
+
+$advisorIds = array_keys($advisorsMap);
+$advisorMonthHours = [];
+$advisorFreeDays = [];
+foreach ($advisorIds as $advisorId) {
+    $advisorMonthHours[$advisorId] = 0;
+    $advisorFreeDays[$advisorId] = 0;
+}
+
+$assignmentsByDateAdvisor = [];
+$assignmentTypeByDateAdvisorHour = [];
+$coverageByDateHour = [];
+
+foreach ($assignments as $assignment) {
+    $date = (string)$assignment['fecha'];
+    $advisorId = (int)$assignment['advisor_id'];
+    $hour = (int)$assignment['hora'];
+
+    if (!isset($assignmentsByDateAdvisor[$date])) {
+        $assignmentsByDateAdvisor[$date] = [];
+    }
+    if (!isset($assignmentsByDateAdvisor[$date][$advisorId])) {
+        $assignmentsByDateAdvisor[$date][$advisorId] = [];
+    }
+    $assignmentsByDateAdvisor[$date][$advisorId][] = $hour;
+
+    $assignmentTypeByDateAdvisorHour[$date][$advisorId][$hour] = (string)($assignment['tipo'] ?? 'normal');
+    $coverageByDateHour[$date][$hour] = ($coverageByDateHour[$date][$hour] ?? 0) + 1;
+    $advisorMonthHours[$advisorId] = ($advisorMonthHours[$advisorId] ?? 0) + 1;
+}
+
+foreach ($assignmentsByDateAdvisor as $date => $advisorRows) {
+    foreach ($advisorRows as $advisorId => $assignedHours) {
+        sort($assignedHours);
+        $assignmentsByDateAdvisor[$date][$advisorId] = $assignedHours;
+    }
+}
+
+$requirementsByDateHour = [];
+foreach ($requirements as $requirement) {
+    $date = (string)$requirement['fecha'];
+    $hour = (int)$requirement['hora'];
+    $required = (int)$requirement['asesores_requeridos'];
+    $requirementsByDateHour[$date][$hour] = $required;
+}
+
+foreach ($advisorIds as $advisorId) {
+    foreach ($dates as $date) {
+        if (empty($assignmentsByDateAdvisor[$date][$advisorId])) {
+            $advisorFreeDays[$advisorId]++;
+        }
+    }
+}
+
+$selectedDate = (string)($_GET['date'] ?? ($dates[0] ?? ''));
+if ($selectedDate === '' || !in_array($selectedDate, $dates, true)) {
+    $selectedDate = $dates[0] ?? '';
+}
+
+$selectedDateIndex = array_search($selectedDate, $dates, true);
+if ($selectedDateIndex === false) {
+    $selectedDateIndex = 0;
+}
+$prevDate = $selectedDateIndex > 0 ? $dates[$selectedDateIndex - 1] : null;
+$nextDate = $selectedDateIndex < (count($dates) - 1) ? $dates[$selectedDateIndex + 1] : null;
+
+$selectedDailyAssignments = $selectedDate !== '' ? ($assignmentsByDateAdvisor[$selectedDate] ?? []) : [];
+$selectedDailyRequirements = $selectedDate !== '' ? ($requirementsByDateHour[$selectedDate] ?? []) : [];
+$selectedDailyCoverage = $selectedDate !== '' ? ($coverageByDateHour[$selectedDate] ?? []) : [];
+
+$totalRequiredDay = 0;
+$totalCoverageDay = 0;
+foreach ($hours as $hour) {
+    $totalRequiredDay += (int)($selectedDailyRequirements[$hour] ?? 0);
+    $totalCoverageDay += (int)($selectedDailyCoverage[$hour] ?? 0);
+}
+
+$totalFreeSlots = array_sum($advisorFreeDays);
+$totalAdvisors = count($advisorIds);
+$totalAssignments = count($assignments);
+
+$selectedDateLabel = '';
+if ($selectedDate !== '') {
+    $selectedTimestamp = strtotime($selectedDate);
+    $selectedDateLabel = sprintf(
+        '%s %s de %s %s',
+        $weekDaysLong[(int)date('w', $selectedTimestamp)],
+        date('d', $selectedTimestamp),
+        $monthsLong[(int)date('n', $selectedTimestamp)],
+        date('Y', $selectedTimestamp)
+    );
+}
+
+$monthlyLink = BASE_URL . '/schedules/' . $schedule['id'] . '?view=monthly';
+$dailyLink = BASE_URL . '/schedules/' . $schedule['id'] . '?view=daily&date=' . urlencode($selectedDate !== '' ? $selectedDate : ($dates[0] ?? ''));
+$advisorLink = BASE_URL . '/schedules/' . $schedule['id'] . '?view=advisor';
+$editLink = BASE_URL . '/schedules/' . $schedule['id'] . '?view=edit&date=' . urlencode($selectedDate !== '' ? $selectedDate : ($dates[0] ?? ''));
 
 ob_start();
 ?>
 
-<div class="schedule-detail-page">
-    <!-- Header -->
-    <div class="page-header">
-        <div class="header-top">
-            <a href="<?= BASE_URL ?>/schedules" class="back-link">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-                Volver a Horarios
-            </a>
+<?php
+// Alertas de cobertura
+$scheduleAlertsSummary = $_SESSION['schedule_alerts_summary'] ?? null;
+$scheduleAlerts = $_SESSION['schedule_alerts'] ?? [];
+unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
+?>
+
+<div class="schedule-detail">
+    <?php if ($scheduleAlertsSummary): ?>
+    <div class="coverage-alert">
+        <div class="alert-icon">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+        </div>
+        <div class="alert-content">
+            <strong>Deficit de Cobertura</strong>
+            <p><?= htmlspecialchars($scheduleAlertsSummary) ?></p>
+            <?php if (count($scheduleAlerts) <= 10): ?>
+            <details>
+                <summary>Ver detalle (<?= count($scheduleAlerts) ?> franjas)</summary>
+                <ul class="alert-list">
+                    <?php foreach ($scheduleAlerts as $alert): ?>
+                    <li><?= htmlspecialchars($alert['fecha']) ?> <?= sprintf('%02d:00', $alert['hora']) ?>: necesarios <?= $alert['requeridos'] ?>, asignados <?= $alert['asignados'] ?> (faltan <?= $alert['deficit'] ?>)</li>
+                    <?php endforeach; ?>
+                </ul>
+            </details>
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <div class="detail-header">
+        <div class="header-row">
+            <a href="<?= BASE_URL ?>/schedules" class="btn-outline-link">Volver</a>
             <div class="header-actions">
                 <?php if ($schedule['status'] === 'borrador'): ?>
-                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/submit" class="btn-action btn-primary">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-                    Enviar para Aprobacion
-                </a>
+                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/submit" class="btn-solid btn-send">Enviar a aprobacion</a>
                 <?php endif; ?>
-                <?php if ($_SESSION['user']['rol'] === 'coordinador' && $schedule['status'] === 'enviado'): ?>
-                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/approve" class="btn-action btn-success">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-                    Aprobar
-                </a>
-                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/reject" class="btn-action btn-danger">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-                    Rechazar
-                </a>
+
+                <?php if (in_array($_SESSION['user']['rol'] ?? '', ['coordinador', 'admin'], true) && $schedule['status'] === 'enviado'): ?>
+                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/approve" class="btn-solid btn-ok">Aprobar</a>
+                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/reject" class="btn-solid btn-bad">Rechazar</a>
                 <?php endif; ?>
             </div>
         </div>
-        <div class="header-main">
-            <div class="header-info">
-                <div class="schedule-badge" style="background: <?= $status['bg'] ?>; color: <?= $status['color'] ?>">
-                    <?= $status['label'] ?>
-                </div>
-                <h1 class="header-title"><?= htmlspecialchars($schedule['campaign_nombre']) ?></h1>
-                <p class="header-subtitle">
-                    Periodo <?= str_pad($schedule['periodo_mes'], 2, '0', STR_PAD_LEFT) ?>/<?= $schedule['periodo_anio'] ?>
-                    &bull; <?= ucfirst($schedule['tipo']) ?>
+
+        <div class="title-row">
+            <div>
+                <span class="status-pill" style="background: <?= $statusInfo['bg'] ?>; color: <?= $statusInfo['color'] ?>;">
+                    <?= htmlspecialchars($statusInfo['label']) ?>
+                </span>
+                <h1><?= htmlspecialchars((string)$schedule['campaign_nombre']) ?></h1>
+                <p>
+                    Periodo <?= str_pad((string)$schedule['periodo_mes'], 2, '0', STR_PAD_LEFT) ?>/<?= htmlspecialchars((string)$schedule['periodo_anio']) ?>
+                    | <?= htmlspecialchars((string)$schedule['fecha_inicio']) ?> al <?= htmlspecialchars((string)$schedule['fecha_fin']) ?>
                 </p>
             </div>
         </div>
     </div>
 
-    <!-- Stats Cards -->
     <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-icon stat-icon-blue">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
-            </div>
-            <div class="stat-content">
-                <span class="stat-value"><?= date('d M', strtotime($schedule['fecha_inicio'])) ?></span>
-                <span class="stat-label">Fecha Inicio</span>
-            </div>
+        <div class="stat-box">
+            <span class="stat-title">Asesores</span>
+            <span class="stat-value"><?= $totalAdvisors ?></span>
         </div>
-        <div class="stat-card">
-            <div class="stat-icon stat-icon-orange">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
-            </div>
-            <div class="stat-content">
-                <span class="stat-value"><?= date('d M', strtotime($schedule['fecha_fin'])) ?></span>
-                <span class="stat-label">Fecha Fin</span>
-            </div>
+        <div class="stat-box">
+            <span class="stat-title">Asignaciones</span>
+            <span class="stat-value"><?= $totalAssignments ?></span>
         </div>
-        <div class="stat-card">
-            <div class="stat-icon stat-icon-green">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
-            </div>
-            <div class="stat-content">
-                <span class="stat-value"><?= count($assignments) ?></span>
-                <span class="stat-label">Asignaciones</span>
-            </div>
+        <div class="stat-box">
+            <span class="stat-title">Dias libres (acumulado)</span>
+            <span class="stat-value"><?= $totalFreeSlots ?></span>
         </div>
-        <div class="stat-card">
-            <div class="stat-icon stat-icon-purple">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-            </div>
-            <div class="stat-content">
-                <span class="stat-value"><?= count($advisorNames) ?></span>
-                <span class="stat-label">Asesores</span>
-            </div>
+        <div class="stat-box">
+            <span class="stat-title">Estado</span>
+            <span class="stat-value"><?= htmlspecialchars($statusInfo['label']) ?></span>
         </div>
     </div>
 
-    <!-- Schedule Table -->
-    <div class="data-panel">
-        <?php if (empty($assignments)): ?>
-        <div class="empty-state">
-            <div class="empty-icon">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
-            </div>
-            <h3 class="empty-title">Sin asignaciones</h3>
-            <p class="empty-text">Este horario aun no tiene asignaciones generadas.</p>
+    <div class="mode-switch">
+        <a href="<?= $monthlyLink ?>" class="switch-link <?= $viewMode === 'monthly' ? 'active' : '' ?>">Resumen Mensual</a>
+        <a href="<?= $advisorLink ?>" class="switch-link <?= $viewMode === 'advisor' ? 'active' : '' ?>">Horario por Asesor</a>
+        <a href="<?= $dailyLink ?>" class="switch-link <?= $viewMode === 'daily' ? 'active' : '' ?>">Matriz Diaria</a>
+        <?php if ($canEdit): ?>
+        <a href="<?= $editLink ?>" class="switch-link switch-edit <?= $viewMode === 'edit' ? 'active' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px;margin-right:4px;"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+            Editar Horario
+        </a>
+        <?php endif; ?>
+    </div>
+
+    <?php if (empty($advisorsMap)): ?>
+    <div class="empty-box">
+        No hay asesores activos en esta campana para mostrar el horario.
+    </div>
+    <?php elseif ($viewMode === 'advisor'): ?>
+    <!-- VISTA POR ASESOR - Formato que entienden los asesores -->
+    <div class="panel">
+        <div class="panel-head">
+            <h2>Horario Detallado por Asesor</h2>
+            <span class="legend-note">Formato: Entrada - Salida</span>
         </div>
-        <?php else: ?>
-        <div class="panel-header">
-            <div class="panel-title">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
-                Matriz de Horarios
+        <div class="advisor-schedule-list">
+            <?php foreach ($advisorsMap as $advisor): ?>
+            <?php $advisorId = (int)$advisor['id']; ?>
+            <div class="advisor-card">
+                <div class="advisor-card-header">
+                    <div class="advisor-info">
+                        <span class="advisor-avatar"><?= strtoupper(substr($advisor['name'], 0, 2)) ?></span>
+                        <div>
+                            <h3><?= htmlspecialchars($advisor['name']) ?></h3>
+                            <span class="advisor-stats">
+                                <?= (int)($advisorMonthHours[$advisorId] ?? 0) ?>h programadas |
+                                <?= (int)($advisorFreeDays[$advisorId] ?? 0) ?> dias libres
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="advisor-schedule-grid">
+                    <?php foreach ($dates as $date): ?>
+                    <?php
+                        $dayHours = $assignmentsByDateAdvisor[$date][$advisorId] ?? [];
+                        $weekday = (int)date('w', strtotime($date));
+                        $dayNum = date('d', strtotime($date));
+                        $isWeekend = in_array($weekday, [0, 6], true);
+                    ?>
+                    <div class="schedule-day <?= $isWeekend ? 'is-weekend' : '' ?> <?= empty($dayHours) ? 'is-free' : '' ?>">
+                        <div class="day-header">
+                            <span class="day-name"><?= $weekDaysShort[$weekday] ?></span>
+                            <span class="day-num"><?= $dayNum ?></span>
+                        </div>
+                        <div class="day-content">
+                            <?php if (!empty($dayHours)): ?>
+                            <div class="time-blocks">
+                                <?= hoursToBlocks($dayHours) ?>
+                            </div>
+                            <span class="hours-badge"><?= count($dayHours) ?>h</span>
+                            <?php else: ?>
+                            <span class="free-label">LIBRE</span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
             </div>
-            <div class="panel-legend">
-                <span class="legend-item"><span class="legend-dot dot-normal"></span> Horas asignadas</span>
-            </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    <?php elseif ($viewMode === 'edit'): ?>
+    <!-- VISTA DE EDICION - Matriz clickeable para agregar/quitar asignaciones -->
+    <div class="panel">
+        <div class="panel-head panel-head-daily">
+            <h2>Editar Horario - <?= htmlspecialchars($selectedDateLabel) ?></h2>
+            <span class="legend-note">Click en celda para asignar/quitar</span>
         </div>
 
-        <div class="schedule-table-wrapper">
-            <table class="schedule-table">
+        <div class="daily-toolbar">
+            <div class="nav-links">
+                <?php if ($prevDate !== null): ?>
+                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>?view=edit&date=<?= urlencode($prevDate) ?>" class="btn-outline-link">Dia anterior</a>
+                <?php endif; ?>
+                <?php if ($nextDate !== null): ?>
+                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>?view=edit&date=<?= urlencode($nextDate) ?>" class="btn-outline-link">Dia siguiente</a>
+                <?php endif; ?>
+            </div>
+            <form method="get" class="date-picker-form">
+                <input type="hidden" name="view" value="edit">
+                <select name="date" onchange="this.form.submit()">
+                    <?php foreach ($dates as $date): ?>
+                    <?php $stamp = strtotime($date); ?>
+                    <option value="<?= htmlspecialchars($date) ?>" <?= $date === $selectedDate ? 'selected' : '' ?>>
+                        <?= htmlspecialchars(sprintf('%s %s/%s', $weekDaysShort[(int)date('w', $stamp)], date('d', $stamp), date('m', $stamp))) ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+            </form>
+        </div>
+
+        <div class="edit-legend">
+            <span class="legend-item"><span class="cell-preview assigned"></span> Asignado</span>
+            <span class="legend-item"><span class="cell-preview available"></span> Disponible</span>
+            <span class="legend-item"><span class="cell-preview blocked"></span> No disponible</span>
+        </div>
+
+        <div class="table-wrap">
+            <table class="edit-table" id="editTable" data-schedule="<?= $schedule['id'] ?>" data-date="<?= htmlspecialchars($selectedDate) ?>">
                 <thead>
                     <tr>
-                        <th class="col-advisor">Asesor</th>
-                        <?php
-                        $dates = array_keys($assignmentsByDate);
-                        sort($dates);
-                        $dayNames = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
-                        foreach ($dates as $date):
-                            $dayName = $dayNames[date('w', strtotime($date))];
-                            $isWeekend = in_array(date('w', strtotime($date)), [0, 6]);
-                        ?>
-                        <th class="col-day <?= $isWeekend ? 'weekend' : '' ?>">
-                            <span class="day-name"><?= $dayName ?></span>
-                            <span class="day-num"><?= date('d', strtotime($date)) ?></span>
-                        </th>
+                        <th class="sticky-col">Asesor</th>
+                        <?php foreach ($hours as $hour): ?>
+                        <th><?= sprintf('%02d', $hour) ?></th>
                         <?php endforeach; ?>
-                        <th class="col-total">Total</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($advisorNames as $advisorId => $name): ?>
-                    <tr>
-                        <td class="col-advisor">
-                            <div class="advisor-cell">
-                                <div class="advisor-avatar">
-                                    <?= strtoupper(substr($name, 0, 1)) ?>
-                                </div>
-                                <span class="advisor-name"><?= htmlspecialchars($name) ?></span>
-                            </div>
-                        </td>
-                        <?php foreach ($dates as $date):
-                            $hours = $assignmentsByDate[$date][$advisorId] ?? [];
-                            $isWeekend = in_array(date('w', strtotime($date)), [0, 6]);
+                    <tr class="row-metric row-required">
+                        <td class="sticky-col"><b>Requerido</b></td>
+                        <?php foreach ($hours as $hour): ?>
+                        <td class="req-cell"><?= (int)($selectedDailyRequirements[$hour] ?? 0) ?></td>
+                        <?php endforeach; ?>
+                    </tr>
+                    <tr class="row-metric row-coverage">
+                        <td class="sticky-col"><b>Asignados</b></td>
+                        <?php foreach ($hours as $hour): ?>
+                        <td class="cov-cell" data-hour="<?= $hour ?>"><?= (int)($selectedDailyCoverage[$hour] ?? 0) ?></td>
+                        <?php endforeach; ?>
+                    </tr>
+
+                    <?php foreach ($advisorsMap as $advisor): ?>
+                    <?php
+                        $advisorId = (int)$advisor['id'];
+                        $dayHours = $selectedDailyAssignments[$advisorId] ?? [];
+                        $hourSet = array_flip($dayHours);
+                    ?>
+                    <tr data-advisor="<?= $advisorId ?>">
+                        <td class="sticky-col"><?= htmlspecialchars($advisor['name']) ?></td>
+                        <?php foreach ($hours as $hour): ?>
+                        <?php
+                            $isAssigned = isset($hourSet[$hour]);
                         ?>
-                        <td class="col-day <?= $isWeekend ? 'weekend' : '' ?>">
-                            <?php if (!empty($hours)):
-                                sort($hours);
-                                $hoursCount = count($hours);
-                                $firstHour = min($hours);
-                                $lastHour = max($hours);
-                            ?>
-                            <div class="hours-cell" title="<?= implode(', ', array_map(fn($h) => sprintf('%02d:00', $h), $hours)) ?>">
-                                <span class="hours-badge"><?= $hoursCount ?>h</span>
-                                <span class="hours-range"><?= sprintf('%02d-%02d', $firstHour, $lastHour + 1) ?></span>
-                            </div>
-                            <?php else: ?>
-                            <span class="no-hours">-</span>
-                            <?php endif; ?>
+                        <td class="edit-cell <?= $isAssigned ? 'assigned' : 'available' ?>"
+                            data-advisor="<?= $advisorId ?>"
+                            data-hour="<?= $hour ?>"
+                            data-assigned="<?= $isAssigned ? '1' : '0' ?>"
+                            onclick="toggleAssignment(this)">
                         </td>
                         <?php endforeach; ?>
-                        <td class="col-total">
-                            <span class="total-hours"><?= $advisorHoursTotal[$advisorId] ?? 0 ?>h</span>
-                        </td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
-        <?php endif; ?>
+
+        <div class="edit-actions">
+            <button type="button" class="btn-solid btn-send" onclick="saveChanges()">
+                <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;margin-right:6px;"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                Guardar Cambios
+            </button>
+            <span class="changes-counter" id="changesCounter">0 cambios pendientes</span>
+        </div>
     </div>
+    <?php elseif ($viewMode === 'monthly'): ?>
+    <div class="panel">
+        <div class="panel-head">
+            <h2>Horario mensual por asesor</h2>
+            <span class="legend-note">Verde = asignado | Gris = libre</span>
+        </div>
+        <div class="table-wrap">
+            <table class="monthly-table">
+                <thead>
+                    <tr>
+                        <th class="col-advisor">Asesor</th>
+                        <?php foreach ($dates as $date): ?>
+                        <?php $weekday = (int)date('w', strtotime($date)); ?>
+                        <th class="<?= in_array($weekday, [0, 6], true) ? 'is-weekend' : '' ?>">
+                            <span class="head-day"><?= $weekDaysShort[$weekday] ?></span>
+                            <span class="head-num"><?= date('d', strtotime($date)) ?></span>
+                        </th>
+                        <?php endforeach; ?>
+                        <th>HT Mes</th>
+                        <th>Libres</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($advisorsMap as $advisor): ?>
+                    <?php $advisorId = (int)$advisor['id']; ?>
+                    <tr>
+                        <td class="col-advisor"><?= htmlspecialchars($advisor['name']) ?></td>
+                        <?php foreach ($dates as $date): ?>
+                        <?php
+                            $dayHours = $assignmentsByDateAdvisor[$date][$advisorId] ?? [];
+                            $weekday = (int)date('w', strtotime($date));
+                        ?>
+                        <td class="<?= in_array($weekday, [0, 6], true) ? 'is-weekend' : '' ?>">
+                            <?php if (!empty($dayHours)): ?>
+                            <span class="tag tag-hours"><?= count($dayHours) ?>h</span>
+                            <small class="range"><?= hoursToBlocks($dayHours) ?></small>
+                            <?php else: ?>
+                            <span class="tag tag-free">Libre</span>
+                            <?php endif; ?>
+                        </td>
+                        <?php endforeach; ?>
+                        <td class="cell-bold"><?= (int)($advisorMonthHours[$advisorId] ?? 0) ?>h</td>
+                        <td class="cell-bold"><?= (int)($advisorFreeDays[$advisorId] ?? 0) ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <?php else: ?>
+    <div class="panel">
+        <div class="panel-head panel-head-daily">
+            <h2>Horario diario tipo matriz</h2>
+            <?php if ($selectedDateLabel !== ''): ?>
+            <span class="legend-note"><?= htmlspecialchars($selectedDateLabel) ?></span>
+            <?php endif; ?>
+        </div>
+
+        <div class="daily-toolbar">
+            <div class="nav-links">
+                <?php if ($prevDate !== null): ?>
+                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>?view=daily&date=<?= urlencode($prevDate) ?>" class="btn-outline-link">Dia anterior</a>
+                <?php else: ?>
+                <span class="btn-outline-link btn-disabled">Dia anterior</span>
+                <?php endif; ?>
+
+                <?php if ($nextDate !== null): ?>
+                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>?view=daily&date=<?= urlencode($nextDate) ?>" class="btn-outline-link">Dia siguiente</a>
+                <?php else: ?>
+                <span class="btn-outline-link btn-disabled">Dia siguiente</span>
+                <?php endif; ?>
+            </div>
+
+            <form method="get" class="date-picker-form">
+                <input type="hidden" name="view" value="daily">
+                <select name="date" onchange="this.form.submit()">
+                    <?php foreach ($dates as $date): ?>
+                    <?php $stamp = strtotime($date); ?>
+                    <option value="<?= htmlspecialchars($date) ?>" <?= $date === $selectedDate ? 'selected' : '' ?>>
+                        <?= htmlspecialchars(sprintf('%s %s/%s', $weekDaysShort[(int)date('w', $stamp)], date('d', $stamp), date('m', $stamp))) ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+            </form>
+        </div>
+
+        <div class="legend-row">
+            <span><b>1</b> = hora asignada</span>
+            <span><b>LIBRE</b> = asesor sin horas ese dia</span>
+        </div>
+
+        <div class="table-wrap">
+            <table class="daily-table">
+                <thead>
+                    <tr>
+                        <th class="sticky-col">Asesor</th>
+                        <th class="sticky-col-2">HT</th>
+                        <?php foreach ($hours as $hour): ?>
+                        <th><?= sprintf('%02d', $hour) ?></th>
+                        <?php endforeach; ?>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="row-metric row-required">
+                        <td class="sticky-col"><b>Dimensionamiento</b></td>
+                        <td class="sticky-col-2"><b><?= $totalRequiredDay ?></b></td>
+                        <?php foreach ($hours as $hour): ?>
+                        <td><?= (int)($selectedDailyRequirements[$hour] ?? 0) ?></td>
+                        <?php endforeach; ?>
+                    </tr>
+                    <tr class="row-metric row-coverage">
+                        <td class="sticky-col"><b>Cobertura</b></td>
+                        <td class="sticky-col-2"><b><?= $totalCoverageDay ?></b></td>
+                        <?php foreach ($hours as $hour): ?>
+                        <td><?= (int)($selectedDailyCoverage[$hour] ?? 0) ?></td>
+                        <?php endforeach; ?>
+                    </tr>
+                    <tr class="row-metric row-gap">
+                        <td class="sticky-col"><b>Diferencia</b></td>
+                        <td class="sticky-col-2"><b><?= $totalCoverageDay - $totalRequiredDay ?></b></td>
+                        <?php foreach ($hours as $hour): ?>
+                        <?php $gap = (int)($selectedDailyCoverage[$hour] ?? 0) - (int)($selectedDailyRequirements[$hour] ?? 0); ?>
+                        <td class="<?= $gap < 0 ? 'neg' : 'pos' ?>"><?= $gap ?></td>
+                        <?php endforeach; ?>
+                    </tr>
+
+                    <?php foreach ($advisorsMap as $advisor): ?>
+                    <?php
+                        $advisorId = (int)$advisor['id'];
+                        $dayHours = $selectedDailyAssignments[$advisorId] ?? [];
+                        sort($dayHours);
+                        $hourSet = array_flip($dayHours);
+                        $dayTotal = count($dayHours);
+                    ?>
+                    <tr class="<?= $dayTotal === 0 ? 'row-free-advisor' : '' ?>">
+                        <td class="sticky-col"><?= htmlspecialchars($advisor['name']) ?></td>
+                        <td class="sticky-col-2">
+                            <?php if ($dayTotal === 0): ?>
+                            <span class="tag tag-free">LIBRE</span>
+                            <?php else: ?>
+                            <span class="tag tag-hours"><?= $dayTotal ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <?php foreach ($hours as $hour): ?>
+                        <?php
+                            $isAssigned = isset($hourSet[$hour]);
+                            $type = $assignmentTypeByDateAdvisorHour[$selectedDate][$advisorId][$hour] ?? 'normal';
+                        ?>
+                        <td class="<?= $isAssigned ? 'assigned type-' . htmlspecialchars($type) : '' ?>">
+                            <?= $isAssigned ? '1' : '' ?>
+                        </td>
+                        <?php endforeach; ?>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <?php endif; ?>
 </div>
 
 <?php
 $content = ob_get_clean();
 
 $extraStyles = [];
+$extraScripts = [];
+$extraScripts[] = <<<SCRIPT
+<script>
+const BASE_URL = '{$_ENV['APP_URL']}' || '/system-horario/TurnoFlow/public';
+const pendingChanges = [];
+let changesCounter = 0;
+
+function toggleAssignment(cell) {
+    if (cell.classList.contains('blocked')) {
+        return;
+    }
+
+    const advisorId = parseInt(cell.dataset.advisor, 10);
+    const hour = parseInt(cell.dataset.hour, 10);
+    const isAssigned = cell.dataset.assigned === '1';
+
+    // Toggle visual state
+    if (isAssigned) {
+        cell.classList.remove('assigned', 'pending-add');
+        cell.classList.add('available', 'pending-remove');
+        cell.dataset.assigned = '0';
+        addChange('remove', advisorId, hour);
+    } else {
+        cell.classList.remove('available', 'pending-remove');
+        cell.classList.add('assigned', 'pending-add');
+        cell.dataset.assigned = '1';
+        addChange('add', advisorId, hour);
+    }
+
+    // Update coverage counter for that hour
+    updateCoverage(hour, isAssigned ? -1 : 1);
+}
+
+function addChange(action, advisorId, hour) {
+    // Check if there's an opposite change that cancels this one
+    const existingIndex = pendingChanges.findIndex(
+        c => c.advisor_id === advisorId && c.hour === hour
+    );
+
+    if (existingIndex !== -1) {
+        const existing = pendingChanges[existingIndex];
+        if (existing.action !== action) {
+            // Cancel out
+            pendingChanges.splice(existingIndex, 1);
+            changesCounter--;
+        }
+    } else {
+        pendingChanges.push({ action, advisor_id: advisorId, hour });
+        changesCounter++;
+    }
+
+    updateChangesCounter();
+}
+
+function updateCoverage(hour, delta) {
+    const covCell = document.querySelector('.cov-cell[data-hour="' + hour + '"]');
+    if (covCell) {
+        const current = parseInt(covCell.textContent, 10) || 0;
+        covCell.textContent = current + delta;
+    }
+}
+
+function updateChangesCounter() {
+    const counter = document.getElementById('changesCounter');
+    if (counter) {
+        counter.textContent = changesCounter + ' cambio' + (changesCounter !== 1 ? 's' : '') + ' pendiente' + (changesCounter !== 1 ? 's' : '');
+        if (changesCounter > 0) {
+            counter.classList.add('has-changes');
+        } else {
+            counter.classList.remove('has-changes');
+        }
+    }
+}
+
+async function saveChanges() {
+    if (pendingChanges.length === 0) {
+        alert('No hay cambios para guardar.');
+        return;
+    }
+
+    const table = document.getElementById('editTable');
+    const scheduleId = table.dataset.schedule;
+    const date = table.dataset.date;
+
+    const btn = document.querySelector('.edit-actions .btn-send');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner"></span> Guardando...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch(BASE_URL + '/schedules/' + scheduleId + '/assignments', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                date: date,
+                changes: pendingChanges
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            // Clear pending changes
+            pendingChanges.length = 0;
+            changesCounter = 0;
+            updateChangesCounter();
+
+            // Remove pending classes
+            document.querySelectorAll('.pending-add, .pending-remove').forEach(cell => {
+                cell.classList.remove('pending-add', 'pending-remove');
+            });
+
+            // Show success
+            alert('Cambios guardados correctamente: ' + result.added + ' agregados, ' + result.removed + ' eliminados.');
+        } else {
+            alert('Error al guardar: ' + (result.error || 'Error desconocido'));
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error de conexion al guardar los cambios.');
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+// Warn before leaving with unsaved changes
+window.addEventListener('beforeunload', function(e) {
+    if (pendingChanges.length > 0) {
+        e.preventDefault();
+        e.returnValue = 'Tienes cambios sin guardar. ¿Seguro que quieres salir?';
+    }
+});
+</script>
+<style>
+.spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 6px;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+</style>
+SCRIPT;
+
+$extraStyles = [];
 $extraStyles[] = <<<'STYLE'
 <style>
-    .schedule-detail-page {
+    .schedule-detail {
         max-width: 100%;
     }
 
-    /* Header */
-    .page-header {
-        margin-bottom: 24px;
-    }
-
-    .header-top {
+    /* Alerta de cobertura */
+    .coverage-alert {
         display: flex;
-        justify-content: space-between;
+        gap: 14px;
+        background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+        border: 1px solid #f59e0b;
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 20px;
+    }
+
+    .coverage-alert .alert-icon {
+        flex-shrink: 0;
+        width: 40px;
+        height: 40px;
+        background: #f59e0b;
+        border-radius: 10px;
+        display: flex;
         align-items: center;
+        justify-content: center;
+    }
+
+    .coverage-alert .alert-icon svg {
+        width: 24px;
+        height: 24px;
+        fill: #fff;
+    }
+
+    .coverage-alert .alert-content {
+        flex: 1;
+    }
+
+    .coverage-alert strong {
+        display: block;
+        color: #92400e;
+        font-size: 14px;
+        margin-bottom: 4px;
+    }
+
+    .coverage-alert p {
+        margin: 0;
+        color: #78350f;
+        font-size: 13px;
+    }
+
+    .coverage-alert details {
+        margin-top: 10px;
+    }
+
+    .coverage-alert summary {
+        cursor: pointer;
+        font-size: 12px;
+        color: #92400e;
+        font-weight: 600;
+    }
+
+    .coverage-alert .alert-list {
+        margin: 8px 0 0 0;
+        padding-left: 20px;
+        font-size: 11px;
+        color: #78350f;
+        max-height: 150px;
+        overflow-y: auto;
+    }
+
+    .coverage-alert .alert-list li {
+        margin-bottom: 2px;
+    }
+
+    .detail-header {
         margin-bottom: 16px;
-        flex-wrap: wrap;
-        gap: 12px;
     }
 
-    .back-link {
-        display: inline-flex;
+    .header-row {
+        display: flex;
         align-items: center;
-        gap: 6px;
-        font-size: 0.8rem;
-        font-weight: 500;
-        color: #64748b;
-        text-decoration: none;
-        transition: color 0.15s;
-    }
-
-    .back-link:hover {
-        color: #2563eb;
-    }
-
-    .back-link svg {
-        width: 16px;
-        height: 16px;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
     }
 
     .header-actions {
         display: flex;
-        gap: 10px;
+        gap: 8px;
+        flex-wrap: wrap;
     }
 
-    .btn-action {
+    .btn-outline-link,
+    .btn-solid {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        padding: 10px 18px;
+        justify-content: center;
         border-radius: 8px;
-        font-size: 0.875rem;
+        padding: 8px 12px;
+        font-size: 12px;
         font-weight: 600;
         text-decoration: none;
-        transition: all 0.15s ease;
-        border: none;
-        cursor: pointer;
+        border: 1px solid #cbd5e1;
     }
 
-    .btn-action svg {
-        width: 18px;
-        height: 18px;
+    .btn-outline-link {
+        background: #fff;
+        color: #334155;
     }
 
-    .btn-primary {
+    .btn-outline-link:hover {
+        background: #f8fafc;
+    }
+
+    .btn-disabled {
+        opacity: 0.45;
+        pointer-events: none;
+    }
+
+    .btn-solid {
+        border-color: transparent;
+        color: #fff;
+    }
+
+    .btn-send {
+        background: #1d4ed8;
+    }
+
+    .btn-send:hover {
+        background: #1e40af;
+    }
+
+    .btn-ok {
+        background: #15803d;
+    }
+
+    .btn-ok:hover {
+        background: #166534;
+    }
+
+    .btn-bad {
+        background: #b91c1c;
+    }
+
+    .btn-bad:hover {
+        background: #991b1b;
+    }
+
+    .title-row h1 {
+        margin: 6px 0 2px;
+        font-size: 24px;
+        color: #0f172a;
+    }
+
+    .title-row p {
+        margin: 0;
+        font-size: 13px;
+        color: #64748b;
+    }
+
+    .status-pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 14px;
+    }
+
+    .stat-box {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 12px;
+    }
+
+    .stat-title {
+        display: block;
+        color: #64748b;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .stat-value {
+        display: block;
+        color: #0f172a;
+        font-size: 20px;
+        font-weight: 700;
+        margin-top: 2px;
+    }
+
+    .mode-switch {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 14px;
+        flex-wrap: wrap;
+    }
+
+    .switch-link {
+        border-radius: 999px;
+        padding: 7px 12px;
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        color: #334155;
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .switch-link.active {
+        border-color: #2563eb;
         background: #2563eb;
         color: #fff;
     }
 
-    .btn-primary:hover {
-        background: #1d4ed8;
-    }
-
-    .btn-success {
-        background: #16a34a;
-        color: #fff;
-    }
-
-    .btn-success:hover {
-        background: #15803d;
-    }
-
-    .btn-danger {
-        background: #dc2626;
-        color: #fff;
-    }
-
-    .btn-danger:hover {
-        background: #b91c1c;
-    }
-
-    .header-main {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-    }
-
-    .schedule-badge {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 6px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        margin-bottom: 8px;
-    }
-
-    .header-title {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #0f172a;
-        margin: 0 0 4px 0;
-    }
-
-    .header-subtitle {
-        font-size: 0.875rem;
-        color: #64748b;
-        margin: 0;
-    }
-
-    /* Stats Grid */
-    .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 16px;
-        margin-bottom: 24px;
-    }
-
-    .stat-card {
-        background: #fff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 18px;
-        display: flex;
-        align-items: center;
-        gap: 14px;
-    }
-
-    .stat-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-    }
-
-    .stat-icon svg {
-        width: 24px;
-        height: 24px;
-    }
-
-    .stat-icon-blue {
-        background: #dbeafe;
-    }
-    .stat-icon-blue svg { fill: #2563eb; }
-
-    .stat-icon-orange {
-        background: #ffedd5;
-    }
-    .stat-icon-orange svg { fill: #ea580c; }
-
-    .stat-icon-green {
-        background: #dcfce7;
-    }
-    .stat-icon-green svg { fill: #16a34a; }
-
-    .stat-icon-purple {
-        background: #f3e8ff;
-    }
-    .stat-icon-purple svg { fill: #9333ea; }
-
-    .stat-content {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .stat-value {
-        font-size: 1.25rem;
-        font-weight: 700;
-        color: #0f172a;
-    }
-
-    .stat-label {
-        font-size: 0.75rem;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        font-weight: 500;
-    }
-
-    /* Data Panel */
-    .data-panel {
+    .panel {
         background: #fff;
         border: 1px solid #e2e8f0;
         border-radius: 12px;
         overflow: hidden;
     }
 
-    .panel-header {
+    .panel-head {
         display: flex;
-        justify-content: space-between;
         align-items: center;
-        padding: 16px 20px;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 12px 14px;
         border-bottom: 1px solid #e2e8f0;
+        background: #f8fafc;
+        flex-wrap: wrap;
+    }
+
+    .panel-head h2 {
+        margin: 0;
+        font-size: 14px;
+        color: #0f172a;
+    }
+
+    .legend-note {
+        font-size: 12px;
+        color: #64748b;
+    }
+
+    .table-wrap {
+        overflow-x: auto;
+        max-width: 100%;
+    }
+
+    .monthly-table,
+    .daily-table {
+        width: max-content;
+        min-width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+
+    .monthly-table th,
+    .monthly-table td,
+    .daily-table th,
+    .daily-table td {
+        border: 1px solid #e2e8f0;
+        text-align: center;
+        padding: 6px 4px;
+        white-space: nowrap;
+    }
+
+    .monthly-table th,
+    .daily-table th {
+        background: #f8fafc;
+        font-size: 11px;
+        color: #475569;
+    }
+
+    .monthly-table .col-advisor,
+    .daily-table .sticky-col {
+        position: sticky;
+        left: 0;
+        z-index: 2;
+        min-width: 220px;
+        text-align: left;
+        padding-left: 10px;
+        background: #fff;
+        font-weight: 600;
+        color: #0f172a;
+    }
+
+    .daily-table th.sticky-col,
+    .monthly-table th.col-advisor {
+        background: #f8fafc;
+        z-index: 3;
+    }
+
+    .daily-table .sticky-col-2 {
+        position: sticky;
+        left: 220px;
+        z-index: 2;
+        min-width: 70px;
+        background: #fff;
+    }
+
+    .daily-table th.sticky-col-2 {
+        background: #f8fafc;
+        z-index: 3;
+    }
+
+    .monthly-table th:not(.col-advisor),
+    .monthly-table td:not(.col-advisor) {
+        min-width: 56px;
+    }
+
+    .monthly-table .is-weekend {
+        background: #fef2f2;
+    }
+
+    .head-day,
+    .head-num {
+        display: block;
+        line-height: 1.2;
+    }
+
+    .head-day {
+        font-size: 10px;
+        color: #94a3b8;
+    }
+
+    .tag {
+        display: inline-block;
+        border-radius: 6px;
+        padding: 2px 7px;
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .tag-hours {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .tag-free {
+        background: #f1f5f9;
+        color: #475569;
+    }
+
+    .range {
+        display: block;
+        font-size: 9px;
+        color: #1e40af;
+        margin-top: 2px;
+        line-height: 1.3;
+        font-weight: 500;
+    }
+
+    .cell-bold {
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    .daily-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 12px 14px;
+        border-bottom: 1px solid #e2e8f0;
+        flex-wrap: wrap;
+    }
+
+    .nav-links {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .date-picker-form select {
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 8px 10px;
+        min-width: 180px;
+        font-size: 12px;
+        color: #334155;
+        background: #fff;
+    }
+
+    .legend-row {
+        display: flex;
+        gap: 14px;
+        padding: 10px 14px;
+        font-size: 12px;
+        color: #64748b;
+        border-bottom: 1px solid #e2e8f0;
+        flex-wrap: wrap;
         background: #f8fafc;
     }
 
-    .panel-title {
+    .daily-table td {
+        min-width: 36px;
+    }
+
+    .row-metric td {
+        font-weight: 600;
+    }
+
+    .row-required td {
+        background: #eff6ff;
+    }
+
+    .row-coverage td {
+        background: #ecfdf5;
+    }
+
+    .row-gap td {
+        background: #fffbeb;
+    }
+
+    .row-gap td.pos {
+        color: #166534;
+    }
+
+    .row-gap td.neg {
+        color: #b91c1c;
+    }
+
+    .daily-table td.assigned {
+        background: #dcfce7;
+        color: #166534;
+        font-weight: 700;
+    }
+
+    .daily-table td.type-extra {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .daily-table td.type-nocturno {
+        background: #e0e7ff;
+        color: #3730a3;
+    }
+
+    .daily-table td.type-replanif {
+        background: #fee2e2;
+        color: #9f1239;
+    }
+
+    .row-free-advisor td {
+        background: #f8fafc;
+    }
+
+    .empty-box {
+        border: 1px dashed #cbd5e1;
+        border-radius: 12px;
+        padding: 24px;
+        background: #fff;
+        color: #475569;
+        font-size: 13px;
+    }
+
+    /* Vista por Asesor */
+    .advisor-schedule-list {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .advisor-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #fff;
+    }
+
+    .advisor-card-header {
+        padding: 16px 20px;
+        background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+        color: #fff;
+    }
+
+    .advisor-info {
         display: flex;
         align-items: center;
-        gap: 10px;
-        font-size: 0.9rem;
+        gap: 14px;
+    }
+
+    .advisor-avatar {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        background: rgba(255,255,255,0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 16px;
+    }
+
+    .advisor-info h3 {
+        margin: 0 0 4px 0;
+        font-size: 16px;
         font-weight: 600;
-        color: #334155;
     }
 
-    .panel-title svg {
-        width: 18px;
-        height: 18px;
-        fill: #64748b;
+    .advisor-stats {
+        font-size: 12px;
+        opacity: 0.85;
     }
 
-    .panel-legend {
+    .advisor-schedule-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+        gap: 1px;
+        background: #e2e8f0;
+        padding: 1px;
+    }
+
+    .schedule-day {
+        background: #fff;
+        padding: 10px 8px;
+        text-align: center;
+        min-height: 80px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .schedule-day.is-weekend {
+        background: #fef2f2;
+    }
+
+    .schedule-day.is-free {
+        background: #f8fafc;
+    }
+
+    .schedule-day.is-weekend.is-free {
+        background: #fef2f2;
+    }
+
+    .day-header {
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 6px;
+    }
+
+    .day-name {
+        font-size: 10px;
+        color: #64748b;
+        text-transform: uppercase;
+        font-weight: 600;
+    }
+
+    .day-num {
+        font-size: 14px;
+        font-weight: 700;
+        color: #1e293b;
+    }
+
+    .day-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+    }
+
+    .time-blocks {
+        font-size: 10px;
+        color: #1e40af;
+        font-weight: 600;
+        line-height: 1.4;
+    }
+
+    .hours-badge {
+        display: inline-block;
+        background: #dcfce7;
+        color: #166534;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .free-label {
+        font-size: 11px;
+        color: #94a3b8;
+        font-weight: 600;
+    }
+
+    /* Vista de edicion */
+    .switch-edit {
+        background: #fef3c7;
+        border-color: #f59e0b;
+        color: #92400e;
+    }
+
+    .switch-edit.active {
+        background: #f59e0b;
+        border-color: #d97706;
+        color: #fff;
+    }
+
+    .edit-legend {
         display: flex;
         gap: 16px;
+        padding: 12px 14px;
+        background: #f8fafc;
+        border-bottom: 1px solid #e2e8f0;
+        flex-wrap: wrap;
     }
 
     .legend-item {
         display: flex;
         align-items: center;
         gap: 6px;
-        font-size: 0.75rem;
-        color: #64748b;
+        font-size: 12px;
+        color: #475569;
     }
 
-    .legend-dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 3px;
+    .cell-preview {
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        border: 1px solid #e2e8f0;
     }
 
-    .dot-normal {
-        background: #dcfce7;
-        border: 1px solid #16a34a;
+    .cell-preview.assigned {
+        background: #22c55e;
+        border-color: #16a34a;
     }
 
-    /* Schedule Table */
-    .schedule-table-wrapper {
-        overflow-x: auto;
+    .cell-preview.available {
+        background: #fff;
+        border-color: #cbd5e1;
     }
 
-    .schedule-table {
-        width: 100%;
+    .cell-preview.blocked {
+        background: #f1f5f9;
+        border-color: #cbd5e1;
+        position: relative;
+    }
+
+    .cell-preview.blocked::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: #dc2626;
+        transform: rotate(-45deg);
+    }
+
+    .edit-table {
+        width: max-content;
+        min-width: 100%;
         border-collapse: collapse;
-        min-width: 800px;
+        font-size: 12px;
     }
 
-    .schedule-table th,
-    .schedule-table td {
-        border-bottom: 1px solid #f1f5f9;
+    .edit-table th,
+    .edit-table td {
+        border: 1px solid #e2e8f0;
+        text-align: center;
         padding: 0;
     }
 
-    .schedule-table th {
+    .edit-table th {
         background: #f8fafc;
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        color: #64748b;
-        padding: 12px 8px;
-        text-align: center;
+        font-size: 11px;
+        color: #475569;
+        padding: 8px 4px;
     }
 
-    .col-advisor {
-        text-align: left !important;
-        padding-left: 16px !important;
-        min-width: 180px;
+    .edit-table th.sticky-col {
         position: sticky;
         left: 0;
+        z-index: 3;
+        background: #f8fafc;
+        min-width: 180px;
+        text-align: left;
+        padding-left: 10px;
+    }
+
+    .edit-table td.sticky-col {
+        position: sticky;
+        left: 0;
+        z-index: 2;
         background: #fff;
-        z-index: 10;
-    }
-
-    th.col-advisor {
-        background: #f8fafc;
-    }
-
-    .col-day {
-        min-width: 65px;
-        text-align: center;
-    }
-
-    .col-day.weekend {
-        background: #fef2f2;
-    }
-
-    th.col-day.weekend {
-        background: #fee2e2;
-    }
-
-    .day-name {
-        display: block;
-        font-size: 0.65rem;
-        color: #94a3b8;
-        margin-bottom: 2px;
-    }
-
-    .day-num {
-        font-size: 0.8rem;
-        color: #334155;
-    }
-
-    .col-total {
-        min-width: 70px;
-        background: #f8fafc;
+        min-width: 180px;
+        text-align: left;
+        padding: 6px 10px;
         font-weight: 600;
+        color: #0f172a;
     }
 
-    .schedule-table tbody tr:hover td {
+    .edit-table .row-metric td.sticky-col {
         background: #f8fafc;
     }
 
-    .schedule-table tbody tr:hover .col-advisor {
-        background: #f8fafc;
+    .edit-table .row-required td {
+        background: #eff6ff;
+        padding: 6px 4px;
     }
 
-    .schedule-table tbody tr:hover .col-day.weekend {
-        background: #fef2f2;
+    .edit-table .row-coverage td {
+        background: #ecfdf5;
+        padding: 6px 4px;
     }
 
-    /* Advisor Cell */
-    .advisor-cell {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 12px 0;
+    .edit-table .req-cell,
+    .edit-table .cov-cell {
+        font-weight: 600;
+        font-size: 11px;
     }
 
-    .advisor-avatar {
+    .edit-cell {
         width: 32px;
         height: 32px;
-        border-radius: 8px;
-        background: #2563eb;
-        color: #fff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.8rem;
-        font-weight: 600;
-        flex-shrink: 0;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        position: relative;
     }
 
-    .advisor-name {
-        font-size: 0.85rem;
-        font-weight: 500;
-        color: #0f172a;
-        white-space: nowrap;
+    .edit-cell:hover {
+        transform: scale(1.1);
+        z-index: 1;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     }
 
-    /* Hours Cell */
-    .hours-cell {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 8px 4px;
-        cursor: default;
+    .edit-cell.assigned {
+        background: #22c55e;
     }
 
-    .hours-badge {
-        display: inline-block;
-        padding: 4px 8px;
+    .edit-cell.assigned:hover {
+        background: #16a34a;
+    }
+
+    .edit-cell.available {
+        background: #fff;
+    }
+
+    .edit-cell.available:hover {
         background: #dcfce7;
-        color: #16a34a;
-        border-radius: 5px;
-        font-size: 0.75rem;
-        font-weight: 700;
-        margin-bottom: 2px;
     }
 
-    .hours-range {
-        font-size: 0.65rem;
-        color: #94a3b8;
-    }
-
-    .no-hours {
-        color: #cbd5e1;
-        padding: 12px;
-        display: block;
-    }
-
-    .total-hours {
-        font-size: 0.85rem;
-        font-weight: 700;
-        color: #0f172a;
-        padding: 12px;
-        display: block;
-    }
-
-    /* Empty State */
-    .empty-state {
-        text-align: center;
-        padding: 60px 20px;
-    }
-
-    .empty-icon {
-        width: 64px;
-        height: 64px;
+    .edit-cell.blocked {
         background: #f1f5f9;
-        border-radius: 16px;
+        cursor: not-allowed;
+    }
+
+    .edit-cell.pending-add {
+        background: #86efac;
+        animation: pulse-add 0.5s ease;
+    }
+
+    .edit-cell.pending-remove {
+        background: #fca5a5;
+        animation: pulse-remove 0.5s ease;
+    }
+
+    @keyframes pulse-add {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.2); }
+        100% { transform: scale(1); }
+    }
+
+    @keyframes pulse-remove {
+        0% { transform: scale(1); }
+        50% { transform: scale(0.9); }
+        100% { transform: scale(1); }
+    }
+
+    .edit-actions {
         display: flex;
         align-items: center;
-        justify-content: center;
-        margin: 0 auto 20px;
+        gap: 16px;
+        padding: 16px;
+        background: #f8fafc;
+        border-top: 1px solid #e2e8f0;
     }
 
-    .empty-icon svg {
-        width: 32px;
-        height: 32px;
-        fill: #94a3b8;
-    }
-
-    .empty-title {
-        font-size: 1.1rem;
-        font-weight: 600;
-        color: #334155;
-        margin: 0 0 8px 0;
-    }
-
-    .empty-text {
-        font-size: 0.9rem;
+    .changes-counter {
+        font-size: 13px;
         color: #64748b;
-        margin: 0;
     }
 
-    /* Responsive */
-    @media (max-width: 1024px) {
-        .stats-grid {
-            grid-template-columns: repeat(2, 1fr);
-        }
+    .changes-counter.has-changes {
+        color: #f59e0b;
+        font-weight: 600;
     }
 
+    /* Mejoras responsive */
     @media (max-width: 768px) {
-        .header-top {
-            flex-direction: column;
-            align-items: flex-start;
+        .advisor-schedule-grid {
+            grid-template-columns: repeat(7, 1fr);
         }
 
-        .header-actions {
-            width: 100%;
-            flex-direction: column;
+        .time-blocks {
+            font-size: 9px;
         }
+    }
 
-        .btn-action {
-            justify-content: center;
+    @media (max-width: 1200px) {
+        .stats-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
+    }
 
+    @media (max-width: 700px) {
         .stats-grid {
             grid-template-columns: 1fr;
         }
 
-        .col-advisor {
-            position: relative;
+        .daily-table .sticky-col,
+        .monthly-table .col-advisor,
+        .edit-table .sticky-col {
+            min-width: 170px;
+        }
+
+        .daily-table .sticky-col-2 {
+            left: 170px;
         }
     }
 </style>

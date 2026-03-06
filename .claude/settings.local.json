@@ -23,7 +23,14 @@
       "Bash(php -r:*)",
       "Bash(dir:*)",
       "Bash(\"C:/Program Files/PostgreSQL/18/bin/psql\":*)",
-      "Bash(php -l:*)"
+      "Bash(php -l:*)",
+      "Bash(PGPASSWORD=turnoflow123 \"C:/Program Files/PostgreSQL/18/bin/psql\":*)",
+      "Bash(PGPASSWORD=turnoflow123 \"C:/Program Files/PostgreSQL/18/bin/psql\" -h localhost -U turnoflow -d turnoflow -c \"UPDATE schedules SET status = ''borrador'', aprobado_por = NULL, aprobado_at = NULL WHERE id = 1; SELECT id, status FROM schedules WHERE id = 1;\")",
+      "Bash(curl -s -b \"PHPSESSID=test123\" \"http://localhost/system-horario/TurnoFlow/public/schedules/generate\" -w \"\\n%{http_code}\")",
+      "Bash(PGPASSWORD=turnoflow123 \"C:/Program Files/PostgreSQL/18/bin/psql\" -h localhost -U turnoflow -d turnoflow -c:*)",
+      "Bash(php regenerate_schedule.php:*)",
+      "Bash(php regen.php:*)",
+      "Bash(php test_save.php:*)"
     ]
   }
 }

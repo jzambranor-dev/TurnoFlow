@@ -5,28 +5,40 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use Database;
+use App\Services\AuthService;
+
+require_once APP_PATH . '/Services/AuthService.php';
 
 class CampaignController
 {
     public function index(): void
     {
+        AuthService::requirePermission('campaigns.view');
+
         $user = $_SESSION['user'];
-
-        // Solo coordinador puede ver todas las campañas
-        if ($user['rol'] !== 'coordinador') {
-            header('Location: ' . BASE_URL . '/dashboard');
-            exit;
-        }
-
         $pdo = Database::getConnection();
 
-        $stmt = $pdo->query("
-            SELECT c.*, u.nombre || ' ' || u.apellido as supervisor_nombre,
-                   (SELECT COUNT(*) FROM advisors a WHERE a.campaign_id = c.id AND a.estado = 'activo') as total_asesores
-            FROM campaigns c
-            LEFT JOIN users u ON u.id = c.supervisor_id
-            ORDER BY c.nombre
-        ");
+        // Supervisores solo ven sus campañas
+        if ($this->canManageAllCampaigns($user)) {
+            $stmt = $pdo->query("
+                SELECT c.*, u.nombre || ' ' || u.apellido as supervisor_nombre,
+                       (SELECT COUNT(*) FROM advisors a WHERE a.campaign_id = c.id AND a.estado = 'activo') as total_asesores
+                FROM campaigns c
+                LEFT JOIN users u ON u.id = c.supervisor_id
+                ORDER BY c.nombre
+            ");
+        } else {
+            $stmt = $pdo->prepare("
+                SELECT c.*, u.nombre || ' ' || u.apellido as supervisor_nombre,
+                       (SELECT COUNT(*) FROM advisors a WHERE a.campaign_id = c.id AND a.estado = 'activo') as total_asesores
+                FROM campaigns c
+                LEFT JOIN users u ON u.id = c.supervisor_id
+                WHERE c.supervisor_id = :supervisor_id
+                ORDER BY c.nombre
+            ");
+            $stmt->execute([':supervisor_id' => $user['id']]);
+        }
+
         $campaigns = $stmt->fetchAll();
 
         $pageTitle = 'Campanas';
@@ -35,14 +47,14 @@ class CampaignController
         include APP_PATH . '/Views/campaigns/index.php';
     }
 
+    private function canManageAllCampaigns(array $user): bool
+    {
+        return in_array($user['rol'] ?? '', ['admin', 'coordinador'], true);
+    }
+
     public function create(): void
     {
-        $user = $_SESSION['user'];
-
-        if ($user['rol'] !== 'coordinador') {
-            header('Location: ' . BASE_URL . '/dashboard');
-            exit;
-        }
+        AuthService::requirePermission('campaigns.create');
 
         $pdo = Database::getConnection();
 
@@ -63,12 +75,7 @@ class CampaignController
 
     public function store(): void
     {
-        $user = $_SESSION['user'];
-
-        if ($user['rol'] !== 'coordinador') {
-            header('Location: ' . BASE_URL . '/dashboard');
-            exit;
-        }
+        AuthService::requirePermission('campaigns.create');
 
         $nombre = trim($_POST['nombre'] ?? '');
         $cliente = trim($_POST['cliente'] ?? '');
@@ -107,12 +114,7 @@ class CampaignController
 
     public function edit(int $id): void
     {
-        $user = $_SESSION['user'];
-
-        if ($user['rol'] !== 'coordinador') {
-            header('Location: ' . BASE_URL . '/dashboard');
-            exit;
-        }
+        AuthService::requirePermission('campaigns.edit');
 
         $pdo = Database::getConnection();
 
@@ -141,12 +143,7 @@ class CampaignController
 
     public function update(int $id): void
     {
-        $user = $_SESSION['user'];
-
-        if ($user['rol'] !== 'coordinador') {
-            header('Location: ' . BASE_URL . '/dashboard');
-            exit;
-        }
+        AuthService::requirePermission('campaigns.edit');
 
         $nombre = trim($_POST['nombre'] ?? '');
         $cliente = trim($_POST['cliente'] ?? '');

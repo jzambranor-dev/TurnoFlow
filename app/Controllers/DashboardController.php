@@ -5,11 +5,16 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use Database;
+use App\Services\AuthService;
+
+require_once APP_PATH . '/Services/AuthService.php';
 
 class DashboardController
 {
     public function index(): void
     {
+        AuthService::requirePermission('dashboard.view');
+
         $user = $_SESSION['user'];
         $rol = $user['rol'];
         $pdo = Database::getConnection();

@@ -810,3 +810,179 @@ Antes de escribir código, verifica y respóndeme:
 
 Cuando tengas las respuestas, empieza por la **Fase 1** completa.
 Commitea al final de cada módulo con mensaje descriptivo en español.
+
+---
+
+## ESTADO ACTUAL DEL REPOSITORIO (actualizado 2026-03-06)
+
+Esta seccion resume lo ya implementado para continuar desde aqui con Claude sin perder contexto.
+
+### Implementado
+
+- Importacion real de dimensionamiento Excel/CSV con PhpSpreadsheet en `app/Controllers/ScheduleController.php::import()`.
+- Persistencia completa de importacion en:
+  - `staffing_imports`
+  - `staffing_requirements`
+- Sincronizacion de cabecera de horario mensual (`schedules`) al importar y al generar.
+- Generacion automatica de asignaciones hora a hora en `buildScheduleAssignments(...)` con reglas:
+  - estado asesor activo
+  - dias de descanso
+  - max horas por dia
+  - extras permitidas/no permitidas
+  - validacion nocturna VPN
+  - restriccion medica
+  - balance por menos horas acumuladas en mes
+- Si asesor no tiene `dias_descanso`, se aplica descanso semanal por defecto (`advisor_id % 7`) para evitar 31/31 dias trabajados.
+- Ruta agregada para generar horarios:
+  - `GET /schedules/generate` en `public/index.php`.
+- Flujo de importacion + generacion deja mensajes flash de exito/error en vistas.
+- Detalle de horario mejorado en `app/Views/schedules/show.php`:
+  - Vista mensual (`?view=monthly`)
+  - Vista diaria tipo matriz (`?view=daily&date=YYYY-MM-DD`)
+  - Muestra "Libre" explicitamente por asesor
+  - Incluye filas de `Dimensionamiento`, `Cobertura` y `Diferencia` por hora.
+- Permisos por rol ajustados en `ScheduleController`:
+  - `admin/coordinador`: todo
+  - `supervisor`: solo campañas propias
+  - `asesor`: horarios aprobados de su campaña
+- `index()` de horarios ahora soporta rol `asesor` (lista horarios aprobados de su campaña).
+- Se centralizo el matching usuario->asesor en `resolveAdvisorByUser(...)` y se reutiliza en `mySchedule()`.
+- Al crear asesor, tambien se crea usuario rol `asesor` (logica en `app/Controllers/AdvisorController.php`).
+
+### Estado de datos local verificado
+
+- Campaña de prueba principal: `Videollamada`.
+- En `schedule id=1` existen asignaciones y dias libres por asesor (no estan 31/31).
+- Verificado en BD: libres entre 4 y 5 dias por asesor en el mes actual de prueba.
+
+### Errores ya resueltos
+
+- `Class "ZipArchive" not found`:
+  - Se confirmo extension zip cargada en runtime de Apache tras reinicio.
+- 404 de assets en dashboard:
+  - Se ajustaron referencias de assets en layout para usar la ruta correcta dentro de `TurnoFlow/dist`.
+
+### Cambios clave por archivo
+
+- `app/Controllers/ScheduleController.php`
+  - import(), generate(), show(), index(), mySchedule(), resolveAdvisorByUser()
+  - helpers de parsing/validacion y sync de horario mensual.
+- `app/Controllers/AdvisorController.php`
+  - creacion de usuario asesor al crear asesor.
+- `public/index.php`
+  - ruta `GET /schedules/generate`.
+- `app/Views/schedules/index.php`
+  - banners de flash.
+- `app/Views/schedules/import.php`
+  - banners de flash.
+- `app/Views/schedules/show.php`
+  - rediseñada con vista mensual/diaria.
+- `app/Views/advisors/index.php` y `app/Views/advisors/create.php`
+  - banners de flash.
+
+### Nota importante para siguiente agente
+
+- El repositorio esta en working tree sucio con cambios en varios archivos, no hacer reset duro.
+- Hay archivos temporales de Office en `docs/~$*.xlsx`; ignorarlos o limpiar manualmente si estorban.
+- Si se vuelve a tocar generacion, validar siempre:
+  - cantidad total de asignaciones
+  - dias libres por asesor
+  - cobertura vs requeridos por hora.
+
+### URLs de prueba rapida
+
+- Lista horarios: `http://localhost/system-horario/TurnoFlow/public/schedules`
+- Detalle mensual: `http://localhost/system-horario/TurnoFlow/public/schedules/1?view=monthly`
+- Detalle diario: `http://localhost/system-horario/TurnoFlow/public/schedules/1?view=daily&date=2026-03-05`
+- Importar: `http://localhost/system-horario/TurnoFlow/public/schedules/import`
+- Roles y permisos: `http://localhost/system-horario/TurnoFlow/public/roles`
+
+---
+
+## SISTEMA DE PERMISOS (implementado 2026-03-06)
+
+### Archivos clave
+
+- `app/Services/AuthService.php` — Servicio central de autorizacion
+- `app/Controllers/RoleController.php` — CRUD de roles
+- `app/Views/roles/` — Vistas de gestion de roles (index, create, edit)
+- `sql/permissions.sql` — Schema y seed de permisos
+
+### Permisos por modulo
+
+| Modulo | Permisos |
+|--------|----------|
+| dashboard | `dashboard.view` |
+| users | `users.view`, `users.create`, `users.edit`, `users.delete` |
+| roles | `roles.view`, `roles.create`, `roles.edit`, `roles.delete` |
+| campaigns | `campaigns.view`, `campaigns.create`, `campaigns.edit` |
+| advisors | `advisors.view`, `advisors.create`, `advisors.edit`, `advisors.constraints` |
+| schedules | `schedules.view`, `schedules.import`, `schedules.generate`, `schedules.submit`, `schedules.approve`, `schedules.view_own` |
+| reports | `reports.view`, `reports.export` |
+| settings | `settings.view`, `settings.edit` |
+
+### Uso en controladores
+
+```php
+use App\Services\AuthService;
+require_once APP_PATH . '/Services/AuthService.php';
+
+// Verificar permiso (redirige si no tiene)
+AuthService::requirePermission('campaigns.edit');
+
+// Verificar sin redirigir
+if (AuthService::hasPermission('schedules.approve')) {
+    // mostrar boton aprobar
+}
+```
+
+### Permisos asignados por rol
+
+| Rol | Total permisos |
+|-----|----------------|
+| admin | 31 (todos) |
+| coordinador | 12 |
+| supervisor | 9 |
+| asesor | 2 |
+
+---
+
+## REGLAS DE NEGOCIO IMPORTANTES
+
+### Prioridad del dimensionamiento
+
+El **dimensionamiento es la maxima prioridad**. El motor de asignacion debe:
+
+1. Cubrir primero los requerimientos de personal por hora
+2. Si faltan asesores, reducir dias de descanso (minimo 1 dia libre por semana)
+3. Distribuir horas equitativamente pero sin comprometer cobertura
+
+### Restricciones especiales de asesores
+
+Ejemplo real: Una asesora que **solo puede librar fines de semana** y trabaja **9:00-18:00 entre semana**.
+
+Esto se configura en `advisor_constraints`:
+- `dias_descanso`: `{5, 6}` (sabado y domingo)
+- `hora_inicio_contrato`: 9
+- `hora_fin_contrato`: 18
+
+### Horario de campana Videollamada
+
+Opera **24/7** (00:00 a 23:59):
+- `tiene_velada`: TRUE
+- `hora_inicio_operacion`: 0
+- `hora_fin_operacion`: 23
+- `requiere_vpn_nocturno`: TRUE (para turnos 22:00-06:00)
+
+---
+
+## FORMATO DE HORARIO PARA ASESORES
+
+Los asesores entienden su horario en formato **DESDE-HASTA**, no hora por hora.
+
+Ejemplo correcto:
+```
+Diana Valero | Lunes 03 | 09:00 - 14:00, 16:00 - 22:00 | 11h
+```
+
+La vista debe mostrar **bloques continuos** de trabajo, no celdas individuales.
