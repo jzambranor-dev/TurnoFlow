@@ -770,9 +770,9 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
             <?= $content ?? '' ?>
         </div>
 
-        <footer class="footer">
-            &copy; <?= date('Y') ?> TurnoFlow - Sistema de Gestion de Horarios
-        </footer>
+<footer class="footer">
+    &copy; <?= date('Y') ?> <strong>TurnoFlow</strong>. Plataforma de Gestión de Horarios. Desarrollado por Ricardo Romero.
+</footer>
     </main>
 
     <!-- Scripts -->
