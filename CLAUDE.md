@@ -810,3 +810,150 @@ Antes de escribir código, verifica y respóndeme:
 
 Cuando tengas las respuestas, empieza por la **Fase 1** completa.
 Commitea al final de cada módulo con mensaje descriptivo en español.
+
+---
+
+## NOTAS DE DESARROLLO IMPORTANTES
+
+### CSS y Formularios (CRÍTICO)
+
+**El CSS de Metronic está COMENTADO** en `app/Views/layouts/main.php`. El sistema usa CSS personalizado inline.
+
+**NO usar clases de Metronic para formularios:**
+- ❌ `class="switch switch-outline switch-icon switch-success"` - NO FUNCIONA
+- ❌ `class="checkbox checkbox-outline checkbox-primary"` - NO FUNCIONA
+- ✅ Usar HTML estándar con estilos inline
+
+**Ejemplo correcto de checkbox:**
+```php
+<label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+    <input type="checkbox" name="campo" value="1" style="width: 18px; height: 18px;">
+    <span>Texto</span>
+</label>
+```
+
+**Ejemplo correcto de checkboxes múltiples (array):**
+```php
+<div style="display: flex; flex-wrap: wrap; gap: 15px;">
+    <?php foreach ($opciones as $i => $opcion): ?>
+    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+        <input type="checkbox" name="campo[]" value="<?= $i ?>" style="width: 18px; height: 18px;">
+        <?= $opcion ?>
+    </label>
+    <?php endforeach; ?>
+</div>
+```
+
+### JavaScript
+
+**jQuery NO está cargado.** Usar JavaScript vanilla:
+```javascript
+// ❌ NO usar jQuery
+$("#elemento").on("change", function() { ... });
+
+// ✅ Usar vanilla JS
+document.getElementById("elemento").addEventListener("change", function() { ... });
+```
+
+### Motor de Asignación de Horarios
+
+**Archivo:** `app/Controllers/ScheduleController.php` método `buildScheduleAssignments()`
+
+**Restricciones de asesores:**
+- `hora_inicio_contrato` / `hora_fin_contrato`: Rango de horas permitidas (0-23 = flexible)
+- `dias_descanso`: Array PostgreSQL {0,1,2,3,4,5,6} donde 0=Lun, 6=Dom
+- `max_horas_dia`: Máximo de horas por día (8-16)
+- `tiene_vpn`: Requerido para turnos nocturnos (22:00-06:00)
+
+**Prioridad del algoritmo:**
+1. Cumplir dimensionamiento (staffing_requirements)
+2. Respetar restricciones de horario de contrato
+3. Mínimo 2 días libres por mes por asesor
+4. Distribución equitativa de días libres
+
+### Base de Datos
+
+**Conexión:** PostgreSQL en `config/database.php`
+```
+Host: localhost
+DB: turnoflow
+User: turnoflow
+Pass: turnoflow123
+```
+
+**Tablas principales:**
+- `advisors`: Datos básicos del asesor + hora_inicio/fin_contrato
+- `advisor_constraints`: Restricciones (VPN, extras, días descanso, médicas)
+- `shift_assignments`: Asignaciones hora por hora
+- `staffing_requirements`: Dimensionamiento importado del Excel
+
+---
+
+## ESTADO ACTUAL DEL DESARROLLO (Marzo 2026)
+
+### ScheduleBuilder - Motor de Asignación Mejorado
+
+**Archivo:** `app/Services/ScheduleBuilder.php`
+
+El motor de asignación fue completamente reescrito para generar horarios más parecidos a los del supervisor real. Logra entre **98.5% y 100%** de cobertura del dimensionamiento.
+
+#### Algoritmo actual (resumen):
+
+1. **Planificar días libres**:
+   - Asesores con `dias_descanso` configurado respetan esos días (ej: Vanessa sab/dom)
+   - Asesores de velada NO tienen libre durante su semana de velada
+   - Máximo 1 asesor libre por día para asegurar cobertura
+   - Priorizar días de baja demanda para dar libres
+
+2. **Asignar velada primero**:
+   - Rotación semanal entre asesores elegibles (con VPN + disponible_velada)
+   - Cubre horas 0-6 (madrugada) + 22-23 (transición)
+
+3. **Asignar asesores restringidos**:
+   - Asesores con contrato limitado (ej: Vanessa 9-18, Daniela 12-21) se asignan primero
+   - Usan bloque completo de su contrato con `forceFullBlock = true`
+
+4. **Asignar asesores flexibles por franja**:
+   - Calcular necesidad de franjas: tarde (19-21), temprano (7-9)
+   - Asignar asesores a franjas según demanda
+   - Bloques de ~10-12 horas continuos
+
+5. **Cubrir huecos restantes**:
+   - Segunda pasada para asignar horas sueltas
+   - El asesor de velada puede cubrir horas diurnas si hay déficit
+
+#### Configuración de velada:
+```php
+$this->horasVelada = [0, 1, 2, 3, 4, 5, 6];  // Madrugada (hora 7 disponible para turnos normales)
+$this->horasTransicion = [22, 23];            // Solo asesores con VPN
+```
+
+#### Funciones clave:
+- `planificarDiasLibres()`: Distribuye días libres evitando días de alta demanda
+- `calcularBloqueSegunFranja()`: Construye bloque según franja (temprano/central/tarde)
+- `asignarVelada()`: Asigna horas de madrugada y transición al asesor de velada
+- `cubrirHuecos()`: Segunda pasada para completar cobertura
+
+#### Test del algoritmo:
+```bash
+php test_nuevo_algoritmo.php
+```
+
+#### Resultados típicos:
+- **Cobertura**: 98.5% - 100%
+- **Días libres**: 3-5 días por asesor sin configuración, 9 días para Vanessa (sab/dom)
+- **Distribución de horas**: 250-280 horas/mes por asesor flexible, 176 horas para Vanessa
+
+### Problemas conocidos y trade-offs:
+
+1. **Cobertura vs días libres**: Con 1 libre por día = 98.5%. Con 0 libres en L-V = 100% pero algunos asesores sin descanso.
+
+2. **Horas 7-11 difíciles de cubrir**: Vanessa (9-18) y Daniela (12-21) no pueden. Solo 6 asesores disponibles para esas horas.
+
+3. **Horas 19-21 difíciles de cubrir**: Vanessa no puede (termina a las 18). Solo 7 asesores disponibles.
+
+### Próximos pasos sugeridos:
+
+1. Considerar contratar más asesores o ajustar el dimensionamiento
+2. Implementar interfaz para que el supervisor pueda ajustar manualmente
+3. Agregar validación visual de cobertura antes de enviar a aprobación
