@@ -13,7 +13,7 @@ class DashboardController
 {
     public function index(): void
     {
-        AuthService::requirePermission('dashboard.view');
+        // No requiere permiso especial — todo usuario autenticado accede al dashboard
 
         $user = $_SESSION['user'];
         $rol = $user['rol'];

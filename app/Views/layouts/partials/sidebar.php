@@ -1,6 +1,6 @@
 <?php
 $user = $_SESSION['user'] ?? null;
-$isCoordinador = ($user['rol'] ?? '') === 'coordinador';
+$isCoordinador = in_array($user['rol'] ?? '', ['coordinador', 'admin'], true);
 $currentPage = $currentPage ?? '';
 ?>
 <div id="kt_app_sidebar" class="app-sidebar flex-column"
@@ -60,7 +60,7 @@ $currentPage = $currentPage ?? '';
                     <!-- Separador -->
                     <div class="menu-item pt-5">
                         <div class="menu-content">
-                            <span class="menu-heading fw-bold text-uppercase fs-7">Operaciones</span>
+                            <span class="menu-heading fw-bold text-uppercase fs-7">Operaciónes</span>
                         </div>
                     </div>
 

@@ -60,7 +60,7 @@ ob_start();
                 <div class="form-group">
                     <label for="rol_id">Rol *</label>
                     <select id="rol_id" name="rol_id" required>
-                        <option value="">Seleccionar rol...</option>
+                        <option value="">Selecciónar rol...</option>
                         <?php foreach ($roles as $rol): ?>
                         <option value="<?= $rol['id'] ?>"><?= ucfirst(htmlspecialchars($rol['nombre'])) ?></option>
                         <?php endforeach; ?>

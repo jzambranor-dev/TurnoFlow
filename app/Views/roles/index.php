@@ -25,7 +25,7 @@ ob_start();
         <div class="header-content">
             <div class="header-info">
                 <h1 class="header-title">Roles y Permisos</h1>
-                <p class="header-subtitle">Gestiona los roles y sus permisos en el sistema</p>
+                <p class="header-subtitle">Gestióna los roles y sus permisos en el sistema</p>
             </div>
             <div class="header-actions">
                 <a href="<?= BASE_URL ?>/roles/create" class="btn-action btn-primary">
@@ -55,7 +55,7 @@ ob_start();
                 </div>
                 <div class="role-info">
                     <h3 class="role-name"><?= ucfirst(htmlspecialchars($role['nombre'])) ?></h3>
-                    <p class="role-desc"><?= htmlspecialchars($role['descripcion'] ?? 'Sin descripcion') ?></p>
+                    <p class="role-desc"><?= htmlspecialchars($role['descripcion'] ?? 'Sin descripción') ?></p>
                 </div>
                 <?php if ($isBase): ?>
                 <span class="badge-base">Base</span>

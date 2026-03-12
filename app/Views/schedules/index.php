@@ -16,7 +16,7 @@ ob_start();
         <div class="header-content">
             <div class="header-info">
                 <h1 class="header-title">Horarios</h1>
-                <p class="header-subtitle">Gestiona los horarios de las campanas</p>
+                <p class="header-subtitle">Gestióna los horarios de las campañas</p>
             </div>
             <div class="header-actions">
                 <a href="<?= BASE_URL ?>/schedules/import" class="btn-action btn-secondary">
@@ -78,7 +78,7 @@ ob_start();
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
             </div>
             <h3 class="empty-title">No hay horarios generados</h3>
-            <p class="empty-text">Importa un dimensionamiento y genera el primer horario para tu campana.</p>
+            <p class="empty-text">Importa un dimensionamiento y genera el primer horario para tu campaña.</p>
             <a href="<?= BASE_URL ?>/schedules/import" class="btn-action btn-primary">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15.01l1.41 1.41L11 14.84V19h2v-4.16l1.59 1.59L16 15.01 12.01 11 8 15.01z"/></svg>
                 Importar Dimensionamiento
@@ -102,13 +102,13 @@ ob_start();
             <table class="data-table" id="schedulesTable">
                 <thead>
                     <tr>
-                        <th>Campana</th>
+                        <th>Campaña</th>
                         <th>Periodo</th>
                         <th>Rango de Fechas</th>
                         <th>Tipo</th>
                         <th>Estado</th>
                         <th>Generado Por</th>
-                        <th class="text-right">Acciones</th>
+                        <th class="text-right">Acciónes</th>
                     </tr>
                 </thead>
                 <tbody>

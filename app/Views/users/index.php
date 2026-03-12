@@ -28,7 +28,7 @@ ob_start();
         <div class="header-content">
             <div class="header-info">
                 <h1 class="header-title">Usuarios</h1>
-                <p class="header-subtitle">Gestiona los usuarios del sistema</p>
+                <p class="header-subtitle">Gestióna los usuarios del sistema</p>
             </div>
             <div class="header-actions">
                 <a href="<?= BASE_URL ?>/users/create" class="btn-action btn-primary">
@@ -98,7 +98,7 @@ ob_start();
                         <th>Rol</th>
                         <th>Estado</th>
                         <th>Creado</th>
-                        <th class="text-right">Acciones</th>
+                        <th class="text-right">Acciónes</th>
                     </tr>
                 </thead>
                 <tbody>

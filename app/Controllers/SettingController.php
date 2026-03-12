@@ -14,7 +14,7 @@ class SettingController
     {
         AuthService::requirePermission('settings.view');
 
-        $pageTitle = 'Configuracion';
+        $pageTitle = 'Configuración';
         $currentPage = 'settings';
 
         include APP_PATH . '/Views/settings/index.php';

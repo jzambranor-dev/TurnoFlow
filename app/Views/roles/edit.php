@@ -13,7 +13,7 @@ $moduloNames = [
     'advisors' => 'Asesores',
     'schedules' => 'Horarios',
     'reports' => 'Reportes',
-    'settings' => 'Configuracion'
+    'settings' => 'Configuración'
 ];
 
 ob_start();
@@ -46,7 +46,7 @@ ob_start();
             <div class="form-card">
                 <div class="card-header">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
-                    <h2>Informacion del Rol</h2>
+                    <h2>Información del Rol</h2>
                 </div>
                 <div class="card-body">
                     <div class="form-group">
@@ -57,7 +57,7 @@ ob_start();
                         <?php endif; ?>
                     </div>
                     <div class="form-group">
-                        <label for="descripcion">Descripcion</label>
+                        <label for="descripcion">Descripción</label>
                         <textarea id="descripcion" name="descripcion" rows="3" placeholder="Describe las funciones de este rol..."><?= htmlspecialchars($role['descripcion'] ?? '') ?></textarea>
                     </div>
                 </div>

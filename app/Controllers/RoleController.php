@@ -51,7 +51,7 @@ class RoleController
         AuthService::requirePermission('roles.create');
 
         $nombre = trim($_POST['nombre'] ?? '');
-        $descripcion = trim($_POST['descripcion'] ?? '');
+        $descripción = trim($_POST['descripción'] ?? '');
         $permissions = $_POST['permissions'] ?? [];
 
         if (empty($nombre)) {
@@ -73,13 +73,13 @@ class RoleController
 
             // Crear rol
             $stmt = $pdo->prepare("
-                INSERT INTO roles (nombre, descripcion)
-                VALUES (:nombre, :descripcion)
+                INSERT INTO roles (nombre, descripción)
+                VALUES (:nombre, :descripción)
                 RETURNING id
             ");
             $stmt->execute([
                 ':nombre' => strtolower($nombre),
-                ':descripcion' => $descripcion,
+                ':descripción' => $descripción,
             ]);
             $rolId = $stmt->fetchColumn();
 
@@ -129,7 +129,7 @@ class RoleController
     {
         AuthService::requirePermission('roles.edit');
 
-        $descripcion = trim($_POST['descripcion'] ?? '');
+        $descripción = trim($_POST['descripción'] ?? '');
         $permissions = $_POST['permissions'] ?? [];
 
         $pdo = Database::getConnection();
@@ -148,23 +148,19 @@ class RoleController
         $rolesBase = ['admin', 'coordinador', 'supervisor', 'asesor'];
         $canEditName = !in_array($role['nombre'], $rolesBase);
 
-        $pdo->beginTransaction();
-
         try {
-            // Actualizar descripcion
-            $stmt = $pdo->prepare("UPDATE roles SET descripcion = :descripcion WHERE id = :id");
+            // Actualizar descripción
+            $stmt = $pdo->prepare("UPDATE roles SET descripción = :descripción WHERE id = :id");
             $stmt->execute([
-                ':descripcion' => $descripcion,
+                ':descripción' => $descripción,
                 ':id' => $id,
             ]);
 
-            // Actualizar permisos
+            // Actualizar permisos (tiene su propia transaccion)
             AuthService::updateRolePermissions($id, $permissions);
 
-            $pdo->commit();
             $_SESSION['success'] = 'Rol actualizado correctamente';
         } catch (\Exception $e) {
-            $pdo->rollBack();
             $_SESSION['error'] = 'Error al actualizar el rol: ' . $e->getMessage();
         }
 

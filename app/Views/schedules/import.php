@@ -38,12 +38,12 @@ ob_start();
                 <!-- Campaign Selection -->
                 <div class="form-section">
                     <label class="form-label">
-                        <span class="label-text">Campana</span>
+                        <span class="label-text">Campaña</span>
                         <span class="label-required">*</span>
                     </label>
                     <div class="select-wrapper">
                         <select name="campaign_id" class="form-select" required>
-                            <option value="">Seleccione una campana...</option>
+                            <option value="">Seleccióne una campaña...</option>
                             <?php foreach ($campaigns as $campaign): ?>
                             <option value="<?= $campaign['id'] ?>"><?= htmlspecialchars($campaign['nombre']) ?></option>
                             <?php endforeach; ?>
@@ -95,7 +95,7 @@ ob_start();
                             </div>
                             <div class="upload-text">
                                 <span class="upload-title">Arrastra tu archivo aqui</span>
-                                <span class="upload-subtitle">o <span class="upload-link">selecciona un archivo</span></span>
+                                <span class="upload-subtitle">o <span class="upload-link">seleccióna un archivo</span></span>
                             </div>
                             <div class="upload-formats">
                                 <span class="format-badge">.xlsx</span>

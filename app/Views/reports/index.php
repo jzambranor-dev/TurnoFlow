@@ -1,37 +1,54 @@
 <?php
 /**
- * TurnoFlow - Vista de Reportes
- * Diseno empresarial profesional
+ * TurnoFlow - Vista de Reportes (selector de campaña)
  */
+
+$pageTitle = 'Reportes';
+$currentPage = 'reports';
 
 ob_start();
 ?>
 
-<div class="coming-soon-page">
-    <div class="coming-soon-card">
-        <div class="icon-wrapper">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+<div class="page-container">
+    <div class="page-header">
+        <div>
+            <h1 class="page-header-title">Reportes</h1>
+            <p class="page-header-subtitle">Selecciona una campaña para ver el reporte de horas</p>
         </div>
-        <h1 class="title">Reportes</h1>
-        <p class="subtitle">Esta seccion estara disponible proximamente</p>
-        <div class="features">
-            <div class="feature">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-                <span>Reporte de horas por asesor</span>
+    </div>
+
+    <div class="data-panel">
+        <?php if (empty($campaigns)): ?>
+        <div class="empty-state">
+            <div class="empty-state-icon">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
             </div>
-            <div class="feature">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-                <span>Reporte de cobertura por campana</span>
-            </div>
-            <div class="feature">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-                <span>Exportacion a Excel y PDF</span>
+            <h5>No hay campañas disponibles</h5>
+            <p>No tienes campañas activas para generar reportes.</p>
+        </div>
+        <?php else: ?>
+        <div class="panel-header">
+            <div class="panel-title">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+                Campañas Disponibles
             </div>
         </div>
-        <a href="<?= BASE_URL ?>/dashboard" class="btn-back">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-            Volver al Dashboard
-        </a>
+
+        <div style="padding: 24px; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
+            <?php foreach ($campaigns as $c): ?>
+            <a href="<?= BASE_URL ?>/reports/hours/<?= $c['id'] ?>" class="report-campaign-card">
+                <div class="report-card-icon">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10z"/></svg>
+                </div>
+                <div>
+                    <div class="report-card-title"><?= htmlspecialchars($c['nombre']) ?></div>
+                    <div class="report-card-sub">Reporte de horas por asesor</div>
+                </div>
+                <svg class="report-card-arrow" viewBox="0 0 24 24" fill="currentColor"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+            </a>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -41,105 +58,64 @@ $content = ob_get_clean();
 $extraStyles = [];
 $extraStyles[] = <<<'STYLE'
 <style>
-    .coming-soon-page {
+    .report-campaign-card {
         display: flex;
         align-items: center;
-        justify-content: center;
-        min-height: 60vh;
-    }
-
-    .coming-soon-card {
+        gap: 16px;
+        padding: 20px;
         background: #fff;
-        border: 1px solid #e2e8f0;
-        border-radius: 16px;
-        padding: 48px;
-        text-align: center;
-        max-width: 480px;
-        width: 100%;
+        border: 1px solid var(--corp-gray-200);
+        border-radius: var(--card-radius);
+        text-decoration: none;
+        color: inherit;
+        transition: all 0.15s;
     }
 
-    .icon-wrapper {
-        width: 80px;
-        height: 80px;
-        background: linear-gradient(135deg, #2563eb, #7c3aed);
-        border-radius: 20px;
+    .report-campaign-card:hover {
+        border-color: var(--corp-primary);
+        box-shadow: var(--card-shadow-hover);
+        transform: translateY(-1px);
+    }
+
+    .report-card-icon {
+        width: 44px;
+        height: 44px;
+        background: linear-gradient(135deg, var(--corp-primary), var(--corp-purple));
+        border-radius: 10px;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin: 0 auto 24px;
-    }
-
-    .icon-wrapper svg {
-        width: 40px;
-        height: 40px;
-        fill: #fff;
-    }
-
-    .title {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #0f172a;
-        margin: 0 0 8px 0;
-    }
-
-    .subtitle {
-        font-size: 0.95rem;
-        color: #64748b;
-        margin: 0 0 32px 0;
-    }
-
-    .features {
-        text-align: left;
-        margin-bottom: 32px;
-    }
-
-    .feature {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 16px;
-        background: #f8fafc;
-        border-radius: 8px;
-        margin-bottom: 8px;
-    }
-
-    .feature:last-child {
-        margin-bottom: 0;
-    }
-
-    .feature svg {
-        width: 20px;
-        height: 20px;
-        fill: #16a34a;
         flex-shrink: 0;
     }
 
-    .feature span {
-        font-size: 0.875rem;
-        color: #334155;
+    .report-card-icon svg {
+        width: 22px;
+        height: 22px;
+        fill: #fff;
     }
 
-    .btn-back {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 12px 24px;
-        background: #2563eb;
-        color: #fff;
-        border-radius: 8px;
-        font-size: 0.875rem;
+    .report-card-title {
         font-weight: 600;
-        text-decoration: none;
-        transition: background 0.15s;
+        font-size: 0.95rem;
+        color: var(--corp-gray-800);
     }
 
-    .btn-back:hover {
-        background: #1d4ed8;
+    .report-card-sub {
+        font-size: 0.8rem;
+        color: var(--corp-gray-400);
+        margin-top: 2px;
     }
 
-    .btn-back svg {
-        width: 18px;
-        height: 18px;
+    .report-card-arrow {
+        width: 20px;
+        height: 20px;
+        fill: var(--corp-gray-300);
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    .report-campaign-card:hover .report-card-arrow {
+        fill: var(--corp-primary);
     }
 </style>
 STYLE;

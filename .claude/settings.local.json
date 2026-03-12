@@ -30,7 +30,16 @@
       "Bash(PGPASSWORD=turnoflow123 \"C:/Program Files/PostgreSQL/18/bin/psql\" -h localhost -U turnoflow -d turnoflow -c:*)",
       "Bash(php regenerate_schedule.php:*)",
       "Bash(php regen.php:*)",
-      "Bash(php test_save.php:*)"
+      "Bash(php test_save.php:*)",
+      "Bash(php regenerar_horario.php:*)",
+      "Bash(php test_endpoint.php:*)",
+      "Bash(PGPASSWORD=postgres \"C:/Program Files/PostgreSQL/18/bin/psql\":*)",
+      "Bash(PGPASSWORD=postgres123 \"C:/Program Files/PostgreSQL/18/bin/psql\":*)",
+      "Bash(php test_velada.php:*)",
+      "Bash(php test_dimensionamiento.php:*)",
+      "Bash(php:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

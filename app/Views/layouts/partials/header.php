@@ -58,7 +58,7 @@ $user = $_SESSION['user'] ?? null;
                                     <div class="fw-bold d-flex align-items-center fs-5">
                                         <?= htmlspecialchars(($user['nombre'] ?? '') . ' ' . ($user['apellido'] ?? '')) ?>
                                     </div>
-                                    <span class="badge badge-light-<?= ($user['rol'] ?? '') === 'coordinador' ? 'danger' : 'primary' ?> fw-bold fs-8 px-2 py-1">
+                                    <span class="badge badge-light-<?= in_array($user['rol'] ?? '', ['coordinador', 'admin'], true) ? 'danger' : 'primary' ?> fw-bold fs-8 px-2 py-1">
                                         <?= ucfirst($user['rol'] ?? 'usuario') ?>
                                     </span>
                                 </div>

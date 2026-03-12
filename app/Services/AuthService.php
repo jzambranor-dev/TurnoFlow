@@ -57,11 +57,17 @@ class AuthService
     /**
      * Requerir permiso o redirigir
      */
-    public static function requirePermission(string $permission, string $redirect = '/dashboard'): void
+    public static function requirePermission(string $permission, ?string $redirect = null): void
     {
         if (!self::hasPermission($permission)) {
             $_SESSION['error'] = 'No tienes permiso para acceder a esta seccion.';
-            header('Location: ' . BASE_URL . $redirect);
+            $target = $redirect ?? '/dashboard';
+            // Evitar loop de redirección: si ya estamos en el destino, ir al login
+            $currentUri = str_replace(BASE_URL, '', parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '');
+            if ($currentUri === $target) {
+                $target = '/login';
+            }
+            header('Location: ' . BASE_URL . $target);
             exit;
         }
     }
@@ -69,11 +75,16 @@ class AuthService
     /**
      * Requerir al menos uno de los permisos
      */
-    public static function requireAnyPermission(array $permissions, string $redirect = '/dashboard'): void
+    public static function requireAnyPermission(array $permissions, ?string $redirect = null): void
     {
         if (!self::hasAnyPermission($permissions)) {
             $_SESSION['error'] = 'No tienes permiso para acceder a esta seccion.';
-            header('Location: ' . BASE_URL . $redirect);
+            $target = $redirect ?? '/dashboard';
+            $currentUri = str_replace(BASE_URL, '', parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '');
+            if ($currentUri === $target) {
+                $target = '/login';
+            }
+            header('Location: ' . BASE_URL . $target);
             exit;
         }
     }

@@ -116,6 +116,20 @@ if ($routeKey === 'GET /advisors') {
     exit;
 }
 
+if ($routeKey === 'GET /advisors/bulk-config') {
+    require_once APP_PATH . '/Controllers/AdvisorController.php';
+    $controller = new App\Controllers\AdvisorController();
+    $controller->bulkConfig();
+    exit;
+}
+
+if ($routeKey === 'POST /advisors/bulk-config') {
+    require_once APP_PATH . '/Controllers/AdvisorController.php';
+    $controller = new App\Controllers\AdvisorController();
+    $controller->bulkConfigStore();
+    exit;
+}
+
 if ($routeKey === 'GET /advisors/create') {
     require_once APP_PATH . '/Controllers/AdvisorController.php';
     $controller = new App\Controllers\AdvisorController();
@@ -149,6 +163,13 @@ if ($routeKey === 'GET /schedules') {
 if ($routeKey === 'GET /schedules/generate') {
     require_once APP_PATH . '/Controllers/ScheduleController.php';
     $controller = new App\Controllers\ScheduleController();
+    $controller->showGenerate();
+    exit;
+}
+
+if ($routeKey === 'POST /schedules/generate') {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
     $controller->generate();
     exit;
 }
@@ -167,11 +188,25 @@ if ($routeKey === 'POST /schedules/import') {
     exit;
 }
 
+if ($method === 'POST' && preg_match('#^/schedules/imports/(\d+)/delete$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->deleteImport((int)$matches[1]);
+    exit;
+}
+
 // Reportes
 if ($routeKey === 'GET /reports') {
     require_once APP_PATH . '/Controllers/ReportController.php';
     $controller = new App\Controllers\ReportController();
     $controller->index();
+    exit;
+}
+
+if ($method === 'GET' && preg_match('#^/reports/hours/(\d+)$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ReportController.php';
+    $controller = new App\Controllers\ReportController();
+    $controller->hours((int)$matches[1]);
     exit;
 }
 
@@ -231,6 +266,92 @@ if ($routeKey === 'POST /roles') {
 // RUTAS DINAMICAS
 // =====================
 
+// Actividades de Campaña
+if ($method === 'GET' && preg_match('#^/campaigns/(\d+)/activities$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ActivityController.php';
+    $controller = new App\Controllers\ActivityController();
+    $controller->index((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'GET' && preg_match('#^/campaigns/(\d+)/activities/create$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ActivityController.php';
+    $controller = new App\Controllers\ActivityController();
+    $controller->create((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'POST' && preg_match('#^/campaigns/(\d+)/activities$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ActivityController.php';
+    $controller = new App\Controllers\ActivityController();
+    $controller->store((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'GET' && preg_match('#^/activities/(\d+)/edit$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ActivityController.php';
+    $controller = new App\Controllers\ActivityController();
+    $controller->edit((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'POST' && preg_match('#^/activities/(\d+)$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ActivityController.php';
+    $controller = new App\Controllers\ActivityController();
+    $controller->update((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'GET' && preg_match('#^/activities/(\d+)/assignments$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ActivityController.php';
+    $controller = new App\Controllers\ActivityController();
+    $controller->assignments((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'POST' && preg_match('#^/activities/(\d+)/assignments$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ActivityController.php';
+    $controller = new App\Controllers\ActivityController();
+    $controller->storeAssignment((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'GET' && preg_match('#^/activities/assignments/(\d+)/remove$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ActivityController.php';
+    $controller = new App\Controllers\ActivityController();
+    $controller->removeAssignment((int)$matches[1]);
+    exit;
+}
+
+// Asesores compartidos
+if ($method === 'GET' && preg_match('#^/campaigns/(\d+)/shared-advisors$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/SharedAdvisorController.php';
+    $controller = new App\Controllers\SharedAdvisorController();
+    $controller->index((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'GET' && preg_match('#^/campaigns/(\d+)/shared-advisors/create$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/SharedAdvisorController.php';
+    $controller = new App\Controllers\SharedAdvisorController();
+    $controller->create((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'POST' && preg_match('#^/campaigns/(\d+)/shared-advisors$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/SharedAdvisorController.php';
+    $controller = new App\Controllers\SharedAdvisorController();
+    $controller->store((int)$matches[1]);
+    exit;
+}
+
+if ($method === 'POST' && preg_match('#^/shared-advisors/(\d+)/toggle$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/SharedAdvisorController.php';
+    $controller = new App\Controllers\SharedAdvisorController();
+    $controller->toggle((int)$matches[1]);
+    exit;
+}
+
 // Campañas - editar
 if ($method === 'GET' && preg_match('#^/campaigns/(\d+)/edit$#', $uri, $matches)) {
     require_once APP_PATH . '/Controllers/CampaignController.php';
@@ -258,21 +379,6 @@ if ($method === 'POST' && preg_match('#^/advisors/(\d+)$#', $uri, $matches)) {
     require_once APP_PATH . '/Controllers/AdvisorController.php';
     $controller = new App\Controllers\AdvisorController();
     $controller->update((int)$matches[1]);
-    exit;
-}
-
-// Asesores - restricciones
-if ($method === 'GET' && preg_match('#^/advisors/(\d+)/constraints$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/AdvisorController.php';
-    $controller = new App\Controllers\AdvisorController();
-    $controller->constraints((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'POST' && preg_match('#^/advisors/(\d+)/constraints$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/AdvisorController.php';
-    $controller = new App\Controllers\AdvisorController();
-    $controller->updateConstraints((int)$matches[1]);
     exit;
 }
 

@@ -2,7 +2,7 @@
 $pageTitle = 'Mi Horario';
 $currentPage = 'my-schedule';
 
-// Organizar asignaciones por fecha
+// Organizar asignaciónes por fecha
 $assignmentsByDate = [];
 $totalHours = 0;
 $totalDays = 0;
@@ -51,7 +51,7 @@ ob_start();
                 <div class="text-muted font-weight-bold">
                     <?php if ($advisor): ?>
                         <span class="label label-lg label-light-primary label-inline mr-2">
-                            <?= htmlspecialchars($advisor['campaign_id'] ? ($currentSchedule['campaign_nombre'] ?? 'Sin campana') : 'Sin campana') ?>
+                            <?= htmlspecialchars($advisor['campaign_id'] ? ($currentSchedule['campaign_nombre'] ?? 'Sin campaña') : 'Sin campaña') ?>
                         </span>
                     <?php endif; ?>
                     <span class="text-dark-50">Asesor de Call Center</span>
@@ -78,7 +78,7 @@ ob_start();
                 </span>
                 <span class="text-muted font-weight-bold">
                     Tu cuenta de usuario aun no esta vinculada a un registro de asesor en el sistema.
-                    Contacta al coordinador para que te asigne a una campana.
+                    Contacta al coordinador para que te asigne a una campaña.
                 </span>
             </div>
         </div>

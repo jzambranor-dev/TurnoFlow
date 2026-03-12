@@ -15,25 +15,32 @@ $canEdit = in_array($schedule['status'], ['borrador', 'rechazado'], true);
 
 /**
  * Convierte array de horas [9,10,11,14,15,16] en bloques "09:00-12:00, 14:00-17:00"
+ * Si se pasan tipos, marca las horas de break con (B)
  */
-function hoursToBlocks(array $hours): string {
+function hoursToBlocks(array $hours, array $types = []): string {
     if (empty($hours)) return '';
     sort($hours);
 
     $blocks = [];
     $start = $hours[0];
     $prev = $hours[0];
+    $hasBreakInBlock = false;
 
     for ($i = 1; $i < count($hours); $i++) {
+        if (($types[$prev] ?? '') === 'break') $hasBreakInBlock = true;
         if ($hours[$i] !== $prev + 1) {
-            // Fin de bloque
-            $blocks[] = sprintf('%02d:00-%02d:00', $start, $prev + 1);
+            $label = sprintf('%02d:00-%02d:00', $start, $prev + 1);
+            if ($hasBreakInBlock) $label .= ' <span style="color:#f59e0b;font-size:0.75em;">(B)</span>';
+            $blocks[] = $label;
             $start = $hours[$i];
+            $hasBreakInBlock = false;
         }
         $prev = $hours[$i];
     }
-    // Ultimo bloque
-    $blocks[] = sprintf('%02d:00-%02d:00', $start, $prev + 1);
+    if (($types[$prev] ?? '') === 'break') $hasBreakInBlock = true;
+    $label = sprintf('%02d:00-%02d:00', $start, $prev + 1);
+    if ($hasBreakInBlock) $label .= ' <span style="color:#f59e0b;font-size:0.75em;">(B)</span>';
+    $blocks[] = $label;
 
     return implode(', ', $blocks);
 }
@@ -71,12 +78,45 @@ $monthsLong = [
     12 => 'Diciembre',
 ];
 
+// Mapear actividades por asesor: [advisor_id] => [{nombre, color, hora_inicio, hora_fin, dias_semana}]
+$advisorActivities = [];
+foreach (($activityAssignments ?? []) as $aa) {
+    $advId = (int)$aa['advisor_id'];
+    $diasRaw = trim($aa['dias_semana'] ?? '{}', '{}');
+    $dias = !empty($diasRaw) ? array_map('intval', explode(',', $diasRaw)) : [];
+    $advisorActivities[$advId][] = [
+        'nombre' => $aa['activity_nombre'],
+        'color' => $aa['activity_color'] ?? '#2563eb',
+        'hora_inicio' => (int)$aa['hora_inicio'],
+        'hora_fin' => (int)$aa['hora_fin'],
+        'dias_semana' => $dias,
+    ];
+}
+
+/**
+ * Obtiene la actividad de un asesor para una hora y fecha específica
+ */
+function getActivityForHour(int $advisorId, int $hour, string $date, array $advisorActivities): ?array {
+    if (empty($advisorActivities[$advisorId])) return null;
+    $dow = (int)date('N', strtotime($date)) - 1; // 0=Lun, 6=Dom
+    foreach ($advisorActivities[$advisorId] as $act) {
+        if (in_array($dow, $act['dias_semana'], true) && $hour >= $act['hora_inicio'] && $hour < $act['hora_fin']) {
+            return $act;
+        }
+    }
+    return null;
+}
+
+$sharedAdvisorIdsList = array_map('intval', $sharedAdvisorIds ?? []);
+$crossCampaignHoursMap = $crossCampaignHours ?? [];
+
 $advisorsMap = [];
 foreach ($campaignAdvisors as $advisor) {
     $advisorId = (int)$advisor['id'];
     $advisorsMap[$advisorId] = [
         'id' => $advisorId,
         'name' => trim((string)$advisor['apellidos'] . ' ' . (string)$advisor['nombres']),
+        'is_shared' => in_array($advisorId, $sharedAdvisorIdsList, true),
     ];
 }
 
@@ -86,6 +126,7 @@ foreach ($assignments as $assignment) {
         $advisorsMap[$advisorId] = [
             'id' => $advisorId,
             'name' => trim((string)$assignment['apellidos'] . ' ' . (string)$assignment['nombres']),
+            'is_shared' => in_array($advisorId, $sharedAdvisorIdsList, true),
         ];
     }
 }
@@ -119,9 +160,11 @@ foreach ($assignments as $assignment) {
     }
     $assignmentsByDateAdvisor[$date][$advisorId][] = $hour;
 
-    $assignmentTypeByDateAdvisorHour[$date][$advisorId][$hour] = (string)($assignment['tipo'] ?? 'normal');
+    $tipo = (string)($assignment['tipo'] ?? 'normal');
+    $assignmentTypeByDateAdvisorHour[$date][$advisorId][$hour] = $tipo;
     $coverageByDateHour[$date][$hour] = ($coverageByDateHour[$date][$hour] ?? 0) + 1;
-    $advisorMonthHours[$advisorId] = ($advisorMonthHours[$advisorId] ?? 0) + 1;
+    // Breaks cuentan como 0.5h, el resto como 1h
+    $advisorMonthHours[$advisorId] = ($advisorMonthHours[$advisorId] ?? 0) + ($tipo === 'break' ? 0.5 : 1);
 }
 
 foreach ($assignmentsByDateAdvisor as $date => $advisorRows) {
@@ -259,7 +302,7 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
             <span class="stat-value"><?= $totalAdvisors ?></span>
         </div>
         <div class="stat-box">
-            <span class="stat-title">Asignaciones</span>
+            <span class="stat-title">Asignaciónes</span>
             <span class="stat-value"><?= $totalAssignments ?></span>
         </div>
         <div class="stat-box">
@@ -286,7 +329,7 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
 
     <?php if (empty($advisorsMap)): ?>
     <div class="empty-box">
-        No hay asesores activos en esta campana para mostrar el horario.
+        No hay asesores activos en esta campaña para mostrar el horario.
     </div>
     <?php elseif ($viewMode === 'advisor'): ?>
     <!-- VISTA POR ASESOR - Formato que entienden los asesores -->
@@ -301,9 +344,9 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
             <div class="advisor-card">
                 <div class="advisor-card-header">
                     <div class="advisor-info">
-                        <span class="advisor-avatar"><?= strtoupper(substr($advisor['name'], 0, 2)) ?></span>
+                        <span class="advisor-avatar"<?= !empty($advisor['is_shared']) ? ' style="background:#ede9fe;color:#7c3aed;"' : '' ?>><?= strtoupper(substr($advisor['name'], 0, 2)) ?></span>
                         <div>
-                            <h3><?= htmlspecialchars($advisor['name']) ?></h3>
+                            <h3><?= htmlspecialchars($advisor['name']) ?><?= !empty($advisor['is_shared']) ? ' <span style="color:#7c3aed;font-size:0.8em;font-weight:normal;">(P)</span>' : '' ?></h3>
                             <span class="advisor-stats">
                                 <?= (int)($advisorMonthHours[$advisorId] ?? 0) ?>h programadas |
                                 <?= (int)($advisorFreeDays[$advisorId] ?? 0) ?> dias libres
@@ -326,12 +369,30 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
                         </div>
                         <div class="day-content">
                             <?php if (!empty($dayHours)): ?>
+                            <?php
+                                $cardBreaks = 0;
+                                $cardTypes = $assignmentTypeByDateAdvisorHour[$date][$advisorId] ?? [];
+                                foreach ($dayHours as $dh) {
+                                    if (($cardTypes[$dh] ?? '') === 'break') $cardBreaks++;
+                                }
+                                $cardHoursDisplay = count($dayHours) - $cardBreaks + ($cardBreaks * 0.5);
+                            ?>
                             <div class="time-blocks">
-                                <?= hoursToBlocks($dayHours) ?>
+                                <?= hoursToBlocks($dayHours, $cardTypes) ?>
                             </div>
-                            <span class="hours-badge"><?= count($dayHours) ?>h</span>
+                            <span class="hours-badge"><?= $cardHoursDisplay == (int)$cardHoursDisplay ? (int)$cardHoursDisplay : $cardHoursDisplay ?>h</span>
                             <?php else: ?>
                             <span class="free-label">LIBRE</span>
+                            <?php endif; ?>
+                            <?php
+                                $crossHours = $crossCampaignHoursMap[$advisorId][$date] ?? [];
+                                if (!empty($crossHours)):
+                                    $crossHourNums = array_keys($crossHours);
+                                    $crossCampName = reset($crossHours);
+                            ?>
+                            <div style="margin-top:3px;font-size:0.7em;color:#7c3aed;line-height:1.2;">
+                                <?= htmlspecialchars($crossCampName) ?>: <?= hoursToBlocks($crossHourNums) ?>
+                            </div>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -342,7 +403,7 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
         </div>
     </div>
     <?php elseif ($viewMode === 'edit'): ?>
-    <!-- VISTA DE EDICION - Matriz clickeable para agregar/quitar asignaciones -->
+    <!-- VISTA DE EDICION - Matriz clickeable para agregar/quitar asignaciónes -->
     <div class="panel">
         <div class="panel-head panel-head-daily">
             <h2>Editar Horario - <?= htmlspecialchars($selectedDateLabel) ?></h2>
@@ -407,18 +468,22 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
                         $dayHours = $selectedDailyAssignments[$advisorId] ?? [];
                         $hourSet = array_flip($dayHours);
                     ?>
-                    <tr data-advisor="<?= $advisorId ?>">
-                        <td class="sticky-col"><?= htmlspecialchars($advisor['name']) ?></td>
+                    <tr data-advisor="<?= $advisorId ?>"<?= !empty($advisor['is_shared']) ? ' style="background:#faf5ff;"' : '' ?>>
+                        <td class="sticky-col"><?= htmlspecialchars($advisor['name']) ?><?= !empty($advisor['is_shared']) ? ' <span style="color:#7c3aed;font-size:0.8em;">(P)</span>' : '' ?></td>
                         <?php foreach ($hours as $hour): ?>
                         <?php
                             $isAssigned = isset($hourSet[$hour]);
+                            $cellType = $assignmentTypeByDateAdvisorHour[$selectedDate][$advisorId][$hour] ?? 'normal';
+                            $isBreak = $isAssigned && $cellType === 'break';
+                            $crossCampName = $crossCampaignHoursMap[$advisorId][$selectedDate][$hour] ?? '';
                         ?>
-                        <td class="edit-cell <?= $isAssigned ? 'assigned' : 'available' ?>"
+                        <td class="edit-cell <?= $isAssigned ? ($isBreak ? 'assigned is-break' : 'assigned') : 'available' ?>"
                             data-advisor="<?= $advisorId ?>"
                             data-hour="<?= $hour ?>"
                             data-assigned="<?= $isAssigned ? '1' : '0' ?>"
-                            onclick="toggleAssignment(this)">
-                        </td>
+                            <?= $crossCampName ? 'title="Prestado a ' . htmlspecialchars($crossCampName) . '"' : '' ?>
+                            <?= $crossCampName ? 'style="background:#ede9fe !important;border-bottom:2px solid #7c3aed;"' : '' ?>
+                            onclick="toggleAssignment(this)"><?= $isBreak ? '<span class="break-label">0.5</span>' : ($crossCampName ? '<span style="color:#7c3aed;font-size:0.65em;">P</span>' : '') ?></td>
                         <?php endforeach; ?>
                     </tr>
                     <?php endforeach; ?>
@@ -459,8 +524,8 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
                 <tbody>
                     <?php foreach ($advisorsMap as $advisor): ?>
                     <?php $advisorId = (int)$advisor['id']; ?>
-                    <tr>
-                        <td class="col-advisor"><?= htmlspecialchars($advisor['name']) ?></td>
+                    <tr<?= !empty($advisor['is_shared']) ? ' style="background:#faf5ff;"' : '' ?>>
+                        <td class="col-advisor"><?= htmlspecialchars($advisor['name']) ?><?= !empty($advisor['is_shared']) ? ' <span style="color:#7c3aed;font-size:0.8em;">(P)</span>' : '' ?></td>
                         <?php foreach ($dates as $date): ?>
                         <?php
                             $dayHours = $assignmentsByDateAdvisor[$date][$advisorId] ?? [];
@@ -468,14 +533,23 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
                         ?>
                         <td class="<?= in_array($weekday, [0, 6], true) ? 'is-weekend' : '' ?>">
                             <?php if (!empty($dayHours)): ?>
-                            <span class="tag tag-hours"><?= count($dayHours) ?>h</span>
+                            <?php
+                                $dayBreaks = 0;
+                                $types = $assignmentTypeByDateAdvisorHour[$date][$advisorId] ?? [];
+                                foreach ($dayHours as $dh) {
+                                    if (($types[$dh] ?? '') === 'break') $dayBreaks++;
+                                }
+                                $dayHoursDisplay = count($dayHours) - $dayBreaks + ($dayBreaks * 0.5);
+                            ?>
+                            <span class="tag tag-hours"><?= $dayHoursDisplay == (int)$dayHoursDisplay ? (int)$dayHoursDisplay : $dayHoursDisplay ?>h</span>
                             <small class="range"><?= hoursToBlocks($dayHours) ?></small>
                             <?php else: ?>
                             <span class="tag tag-free">Libre</span>
                             <?php endif; ?>
                         </td>
                         <?php endforeach; ?>
-                        <td class="cell-bold"><?= (int)($advisorMonthHours[$advisorId] ?? 0) ?>h</td>
+                        <?php $monthH = $advisorMonthHours[$advisorId] ?? 0; ?>
+                        <td class="cell-bold"><?= $monthH == (int)$monthH ? (int)$monthH : $monthH ?>h</td>
                         <td class="cell-bold"><?= (int)($advisorFreeDays[$advisorId] ?? 0) ?></td>
                     </tr>
                     <?php endforeach; ?>
@@ -522,7 +596,14 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
 
         <div class="legend-row">
             <span><b>1</b> = hora asignada</span>
+            <span><b>0.5</b> = break (descanso)</span>
             <span><b>LIBRE</b> = asesor sin horas ese dia</span>
+            <?php foreach (($campaignActivities ?? []) as $act): ?>
+            <span>
+                <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:<?= htmlspecialchars($act['color']) ?>;vertical-align:middle;margin-right:2px;"></span>
+                <?= htmlspecialchars($act['nombre']) ?>
+            </span>
+            <?php endforeach; ?>
         </div>
 
         <div class="table-wrap">
@@ -566,25 +647,48 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
                         $dayHours = $selectedDailyAssignments[$advisorId] ?? [];
                         sort($dayHours);
                         $hourSet = array_flip($dayHours);
-                        $dayTotal = count($dayHours);
+                        // Calculate day total counting breaks as 0.5
+                        $dayBreakCount = 0;
+                        $dayTypes = $assignmentTypeByDateAdvisorHour[$selectedDate][$advisorId] ?? [];
+                        foreach ($dayHours as $dh) {
+                            if (($dayTypes[$dh] ?? '') === 'break') $dayBreakCount++;
+                        }
+                        $dayTotal = count($dayHours) - $dayBreakCount + ($dayBreakCount * 0.5);
                     ?>
-                    <tr class="<?= $dayTotal === 0 ? 'row-free-advisor' : '' ?>">
-                        <td class="sticky-col"><?= htmlspecialchars($advisor['name']) ?></td>
+                    <tr class="<?= count($dayHours) === 0 ? 'row-free-advisor' : '' ?>"<?= !empty($advisor['is_shared']) ? ' style="background:#faf5ff;"' : '' ?>>
+                        <td class="sticky-col"><?= htmlspecialchars($advisor['name']) ?><?= !empty($advisor['is_shared']) ? ' <span style="color:#7c3aed;font-size:0.8em;">(P)</span>' : '' ?></td>
                         <td class="sticky-col-2">
-                            <?php if ($dayTotal === 0): ?>
+                            <?php if (count($dayHours) === 0): ?>
                             <span class="tag tag-free">LIBRE</span>
                             <?php else: ?>
-                            <span class="tag tag-hours"><?= $dayTotal ?></span>
+                            <span class="tag tag-hours"><?= $dayTotal == (int)$dayTotal ? (int)$dayTotal : $dayTotal ?></span>
                             <?php endif; ?>
                         </td>
                         <?php foreach ($hours as $hour): ?>
                         <?php
                             $isAssigned = isset($hourSet[$hour]);
                             $type = $assignmentTypeByDateAdvisorHour[$selectedDate][$advisorId][$hour] ?? 'normal';
+                            $activity = $isAssigned ? getActivityForHour($advisorId, $hour, $selectedDate, $advisorActivities) : null;
+                            $crossCampName = $crossCampaignHoursMap[$advisorId][$selectedDate][$hour] ?? '';
                         ?>
-                        <td class="<?= $isAssigned ? 'assigned type-' . htmlspecialchars($type) : '' ?>">
+                        <?php if ($crossCampName && !$isAssigned): ?>
+                        <td style="background:#ede9fe;color:#7c3aed;font-size:0.55rem;font-weight:700;border-bottom:2px solid #7c3aed;" title="Prestado a <?= htmlspecialchars($crossCampName) ?>">
+                            <?= htmlspecialchars(mb_substr($crossCampName, 0, 4)) ?>
+                        </td>
+                        <?php elseif ($activity): ?>
+                        <td class="assigned" style="background:<?= htmlspecialchars($activity['color']) ?>20;color:<?= htmlspecialchars($activity['color']) ?>;font-size:0.6rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40px;" title="<?= htmlspecialchars($activity['nombre']) ?>">
+                            <?= htmlspecialchars(mb_substr($activity['nombre'], 0, 4)) ?>
+                        </td>
+                        <?php elseif ($isAssigned && $type === 'break'): ?>
+                        <td class="assigned type-break" title="Break">
+                            0.5
+                        </td>
+                        <?php else: ?>
+                        <td class="<?= $isAssigned ? 'assigned type-' . htmlspecialchars($type) : '' ?><?= $crossCampName ? ' cross-campaign' : '' ?>"
+                            <?= $crossCampName ? 'style="border-bottom:2px solid #7c3aed;" title="Tambien prestado a ' . htmlspecialchars($crossCampName) . '"' : '' ?>>
                             <?= $isAssigned ? '1' : '' ?>
                         </td>
+                        <?php endif; ?>
                         <?php endforeach; ?>
                     </tr>
                     <?php endforeach; ?>
@@ -1205,6 +1309,24 @@ $extraStyles[] = <<<'STYLE'
     .daily-table td.type-replanif {
         background: #fee2e2;
         color: #9f1239;
+    }
+
+    .daily-table td.type-break {
+        background: #fef9c3;
+        color: #a16207;
+        font-size: 0.7rem;
+        font-weight: 600;
+    }
+
+    .edit-cell.is-break {
+        background: #fef9c3 !important;
+        position: relative;
+    }
+
+    .break-label {
+        font-size: 0.6rem;
+        font-weight: 700;
+        color: #a16207;
     }
 
     .row-free-advisor td {

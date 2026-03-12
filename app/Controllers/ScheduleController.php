@@ -13,6 +13,7 @@ use Throwable;
 use App\Services\AuthService;
 
 require_once APP_PATH . '/Services/AuthService.php';
+require_once APP_PATH . '/Services/ScheduleBuilder.php';
 
 class ScheduleController
 {
@@ -120,7 +121,7 @@ class ScheduleController
         $periodoAnio = (int)($_POST['periodo_anio'] ?? 0);
 
         if ($campaignId <= 0 || $periodoMes < 1 || $periodoMes > 12 || $periodoAnio < 2000) {
-            $this->setFlash('error', 'Datos de importacion invalidos.');
+            $this->setFlash('error', 'Datos de importación invalidos.');
             header('Location: ' . BASE_URL . '/schedules/import');
             exit;
         }
@@ -172,7 +173,7 @@ class ScheduleController
 
         $campaign = $stmtCampaign->fetch();
         if (!$campaign) {
-            $this->setFlash('error', 'No tienes permisos sobre esa campana o no esta activa.');
+            $this->setFlash('error', 'No tienes permisos sobre esa campaña o no esta activa.');
             header('Location: ' . BASE_URL . '/schedules/import');
             exit;
         }
@@ -208,15 +209,54 @@ class ScheduleController
             $spreadsheet = IOFactory::load($targetPath);
             $sheet = $spreadsheet->getActiveSheet();
 
-            $headerRef = Coordinate::stringFromColumnIndex(1) . '1';
-            $headerValue = trim((string)$sheet->getCell($headerRef)->getFormattedValue());
-            if ($headerValue === '' || stripos($headerValue, 'horas') === false) {
-                throw new RuntimeException('Formato no reconocido: la celda A1 debe contener "Horas ACD".');
+            // Detectar formato: buscar la fila de encabezado y las filas de horas dinámicamente
+            // Soporta tanto "0:00" (formato Videollamada) como "10:00 - 11:00" (formato Kiosko)
+            $headerRow = null;
+            $hourRows = []; // [fila_excel => hora_int]
+
+            $maxRow = min($sheet->getHighestRow(), 50); // Buscar en las primeras 50 filas
+
+            // Paso 1: Encontrar la fila de encabezado ("Horas ACD" o similar)
+            for ($r = 1; $r <= $maxRow; $r++) {
+                $cellA = trim((string)$sheet->getCell('A' . $r)->getFormattedValue());
+                if ($cellA !== '' && stripos($cellA, 'horas') !== false) {
+                    $headerRow = $r;
+                    break;
+                }
             }
 
-            for ($hour = 0; $hour < 24; $hour++) {
-                $row = 3 + $hour;
+            if ($headerRow === null) {
+                throw new RuntimeException('Formato no reconocido: no se encontro una celda con "Horas" en la columna A.');
+            }
 
+            // Paso 2: Recorrer filas después del header para detectar horas
+            for ($r = $headerRow + 1; $r <= $maxRow; $r++) {
+                $cell = $sheet->getCell('A' . $r);
+                $formatted = trim((string)$cell->getFormattedValue());
+                $raw = $cell->getCalculatedValue();
+
+                if ($formatted === '' && ($raw === null || $raw === '')) continue;
+
+                // Detectar "TOTAL" para parar
+                if (stripos($formatted, 'total') !== false) break;
+
+                // Intentar con el valor formateado primero, luego con el raw
+                $hora = $this->parseHourFromCell($formatted);
+                if ($hora === null && $raw !== null) {
+                    $hora = $this->parseHourFromCell(trim((string)$raw));
+                }
+
+                if ($hora !== null && $hora >= 0 && $hora <= 23) {
+                    $hourRows[$r] = $hora;
+                }
+            }
+
+            if (empty($hourRows)) {
+                throw new RuntimeException('No se encontraron filas con horas validas en la columna A.');
+            }
+
+            // Paso 3: Leer los datos de cada fila de hora detectada
+            foreach ($hourRows as $row => $hour) {
                 for ($day = 1; $day <= $daysInMonth; $day++) {
                     $column = $day + 1;
                     $cellRef = Coordinate::stringFromColumnIndex($column) . $row;
@@ -316,8 +356,9 @@ class ScheduleController
                 $canRegenerate = !$isLockedStatus || ($isLockedStatus && $existingAssignments === 0);
 
                 if ($canRegenerate) {
-                    $generatedAssignments = $this->buildScheduleAssignments(
-                        $pdo,
+                    // Usar el nuevo ScheduleBuilder
+                    $builder = new \App\Services\ScheduleBuilder($pdo);
+                    $generatedAssignments = $builder->build(
                         (int)$scheduleRow['id'],
                         $campaignId,
                         $fechaInicio,
@@ -328,18 +369,24 @@ class ScheduleController
 
             $pdo->commit();
 
-            $this->setFlash(
-                'success',
-                sprintf(
-                    'Importacion completada para %s. Se guardaron %d registros (%02d/%04d), el horario mensual fue %s y se generaron %d asignaciones.',
-                    $campaign['nombre'],
-                    count($requirements),
-                    $periodoMes,
-                    $periodoAnio,
-                    $scheduleAction,
-                    $generatedAssignments
-                )
+            // Regenerar campañas fuente si hay asesores compartidos
+            $regeneratedCampaigns = $this->regenerarCampañasFuente(
+                $pdo, $campaignId, $fechaInicio, $fechaFin, (int)$user['id']
             );
+
+            $msg = sprintf(
+                'Importación completada para %s. Se guardaron %d registros (%02d/%04d), el horario mensual fue %s y se generaron %d asignaciónes.',
+                $campaign['nombre'],
+                count($requirements),
+                $periodoMes,
+                $periodoAnio,
+                $scheduleAction,
+                $generatedAssignments
+            );
+            if (!empty($regeneratedCampaigns)) {
+                $msg .= ' Se actualizaron horarios de: ' . implode(', ', $regeneratedCampaigns) . '.';
+            }
+            $this->setFlash('success', $msg);
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -378,10 +425,10 @@ class ScheduleController
                     ':errores_json' => $errorJson ?: '{}',
                 ]);
             } catch (Throwable $dbError) {
-                error_log('Error guardando detalle de importacion: ' . $dbError->getMessage());
+                error_log('Error guardando detalle de importación: ' . $dbError->getMessage());
             }
 
-            error_log('Importacion fallida: ' . $e->getMessage());
+            error_log('Importación fallida: ' . $e->getMessage());
             $this->setFlash('error', 'No se pudo procesar el archivo: ' . $e->getMessage());
             header('Location: ' . BASE_URL . '/schedules/import');
             exit;
@@ -445,14 +492,19 @@ class ScheduleController
         $stmt->execute([':schedule_id' => $id]);
         $assignments = $stmt->fetchAll();
 
+        // Asesores directos de la campaña + compartidos (prestados a esta campaña)
         $stmt = $pdo->prepare("
-            SELECT id, nombres, apellidos
-            FROM advisors
-            WHERE campaign_id = :campaign_id
-              AND estado = 'activo'
+            SELECT a.id, a.nombres, a.apellidos
+            FROM advisors a
+            WHERE a.campaign_id = :campaign_id AND a.estado = 'activo'
+            UNION
+            SELECT a.id, a.nombres, a.apellidos
+            FROM shared_advisors sa
+            JOIN advisors a ON a.id = sa.advisor_id
+            WHERE sa.target_campaign_id = :campaign_id2 AND sa.estado = 'activo' AND a.estado = 'activo'
             ORDER BY apellidos, nombres
         ");
-        $stmt->execute([':campaign_id' => $schedule['campaign_id']]);
+        $stmt->execute([':campaign_id' => $schedule['campaign_id'], ':campaign_id2' => $schedule['campaign_id']]);
         $campaignAdvisors = $stmt->fetchAll();
 
         $stmt = $pdo->prepare("
@@ -469,10 +521,237 @@ class ScheduleController
         ]);
         $requirements = $stmt->fetchAll();
 
+        // Cargar actividades y asignaciónes de asesores a actividades
+        $stmt = $pdo->prepare("
+            SELECT ca.id, ca.nombre, ca.color
+            FROM campaign_activities ca
+            WHERE ca.campaign_id = :campaign_id AND ca.estado = 'activa'
+            ORDER BY ca.nombre
+        ");
+        $stmt->execute([':campaign_id' => $schedule['campaign_id']]);
+        $campaignActivities = $stmt->fetchAll();
+
+        $stmt = $pdo->prepare("
+            SELECT aaa.advisor_id, ca.nombre AS activity_nombre, ca.color AS activity_color,
+                   aaa.hora_inicio, aaa.hora_fin, aaa.dias_semana
+            FROM advisor_activity_assignments aaa
+            JOIN campaign_activities ca ON ca.id = aaa.activity_id
+            WHERE ca.campaign_id = :campaign_id
+              AND ca.estado = 'activa'
+              AND aaa.activo = true
+        ");
+        $stmt->execute([':campaign_id' => $schedule['campaign_id']]);
+        $activityAssignments = $stmt->fetchAll();
+
+        // Cargar IDs de asesores compartidos (prestados a esta campaña)
+        $stmt = $pdo->prepare("
+            SELECT sa.advisor_id
+            FROM shared_advisors sa
+            WHERE sa.target_campaign_id = :campaign_id AND sa.estado = 'activo'
+        ");
+        $stmt->execute([':campaign_id' => $schedule['campaign_id']]);
+        $sharedAdvisorIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        // Cargar horas que asesores propios tienen comprometidas en OTRAS campañas
+        // (para mostrar marca visual "prestado a X" en el horario)
+        $crossCampaignHours = [];
+        $stmt = $pdo->prepare("
+            SELECT sa2.advisor_id
+            FROM shared_advisors sa2
+            WHERE sa2.source_campaign_id = :campaign_id AND sa2.estado = 'activo'
+        ");
+        $stmt->execute([':campaign_id' => $schedule['campaign_id']]);
+        $outgoingAdvisorIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (!empty($outgoingAdvisorIds)) {
+            $phOuts = implode(',', array_fill(0, count($outgoingAdvisorIds), '?'));
+            $paramsOut = array_merge(
+                array_map('intval', $outgoingAdvisorIds),
+                [$schedule['fecha_inicio'], $schedule['fecha_fin'], $schedule['campaign_id']]
+            );
+            $stmt = $pdo->prepare("
+                SELECT sa_ext.advisor_id, sa_ext.fecha::text AS fecha, sa_ext.hora, c.nombre AS campaign_nombre
+                FROM shift_assignments sa_ext
+                JOIN campaigns c ON c.id = sa_ext.campaign_id
+                WHERE sa_ext.advisor_id IN ($phOuts)
+                  AND sa_ext.fecha BETWEEN ? AND ?
+                  AND sa_ext.campaign_id <> ?
+                ORDER BY sa_ext.advisor_id, sa_ext.fecha, sa_ext.hora
+            ");
+            $stmt->execute($paramsOut);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $crossCampaignHours[(int)$row['advisor_id']][$row['fecha']][(int)$row['hora']] = $row['campaign_nombre'];
+            }
+        }
+
         $pageTitle = 'Ver Horario';
         $currentPage = 'schedules';
 
         include APP_PATH . '/Views/schedules/show.php';
+    }
+
+    public function showGenerate(): void
+    {
+        AuthService::requirePermission('schedules.generate');
+
+        $user = $_SESSION['user'] ?? null;
+        if (!$user) {
+            header('Location: ' . BASE_URL . '/login');
+            exit;
+        }
+
+        $pdo = Database::getConnection();
+
+        // Cargar importaciónes disponibles con info de campaña y asesores
+        if ($this->canManageAllCampaigns($user)) {
+            $stmt = $pdo->query("
+                SELECT si.id as import_id, si.campaign_id, si.periodo_anio, si.periodo_mes,
+                       si.archivo_nombre, si.total_asesor_hora, si.imported_at,
+                       c.nombre as campaign_nombre,
+                       u.nombre || ' ' || u.apellido as importado_por_nombre,
+                       (SELECT COUNT(*) FROM advisors a WHERE a.campaign_id = c.id AND a.estado = 'activo') as total_asesores,
+                       s.id as schedule_id, s.status as schedule_status
+                FROM staffing_imports si
+                JOIN campaigns c ON c.id = si.campaign_id
+                LEFT JOIN users u ON u.id = si.importado_por
+                LEFT JOIN schedules s ON s.campaign_id = si.campaign_id
+                    AND s.periodo_anio = si.periodo_anio
+                    AND s.periodo_mes = si.periodo_mes
+                WHERE si.estado = 'procesado'
+                  AND c.estado = 'activa'
+                ORDER BY c.nombre, si.periodo_anio DESC, si.periodo_mes DESC
+            ");
+        } else {
+            $stmt = $pdo->prepare("
+                SELECT si.id as import_id, si.campaign_id, si.periodo_anio, si.periodo_mes,
+                       si.archivo_nombre, si.total_asesor_hora, si.imported_at,
+                       c.nombre as campaign_nombre,
+                       u.nombre || ' ' || u.apellido as importado_por_nombre,
+                       (SELECT COUNT(*) FROM advisors a WHERE a.campaign_id = c.id AND a.estado = 'activo') as total_asesores,
+                       s.id as schedule_id, s.status as schedule_status
+                FROM staffing_imports si
+                JOIN campaigns c ON c.id = si.campaign_id
+                LEFT JOIN users u ON u.id = si.importado_por
+                LEFT JOIN schedules s ON s.campaign_id = si.campaign_id
+                    AND s.periodo_anio = si.periodo_anio
+                    AND s.periodo_mes = si.periodo_mes
+                WHERE si.estado = 'procesado'
+                  AND c.estado = 'activa'
+                  AND c.supervisor_id = :uid
+                ORDER BY c.nombre, si.periodo_anio DESC, si.periodo_mes DESC
+            ");
+            $stmt->execute([':uid' => $user['id']]);
+        }
+
+        $imports = $stmt->fetchAll();
+
+        $flashSuccess = $_SESSION['flash_success'] ?? null;
+        $flashError = $_SESSION['flash_error'] ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
+        $pageTitle = 'Generar Horario';
+        $currentPage = 'schedules';
+
+        include APP_PATH . '/Views/schedules/generate.php';
+    }
+
+    public function deleteImport(int $importId): void
+    {
+        AuthService::requirePermission('schedules.generate');
+
+        $user = $_SESSION['user'] ?? null;
+        if (!$user) {
+            header('Location: ' . BASE_URL . '/login');
+            exit;
+        }
+
+        $pdo = Database::getConnection();
+
+        // Obtener la importación validando permisos
+        if ($this->canManageAllCampaigns($user)) {
+            $stmt = $pdo->prepare("
+                SELECT si.*, c.nombre as campaign_nombre
+                FROM staffing_imports si
+                JOIN campaigns c ON c.id = si.campaign_id
+                WHERE si.id = :id
+            ");
+            $stmt->execute([':id' => $importId]);
+        } else {
+            $stmt = $pdo->prepare("
+                SELECT si.*, c.nombre as campaign_nombre
+                FROM staffing_imports si
+                JOIN campaigns c ON c.id = si.campaign_id
+                WHERE si.id = :id AND c.supervisor_id = :uid
+            ");
+            $stmt->execute([':id' => $importId, ':uid' => $user['id']]);
+        }
+
+        $importRow = $stmt->fetch();
+        if (!$importRow) {
+            $this->setFlash('error', 'Importación no encontrada o sin permisos.');
+            header('Location: ' . BASE_URL . '/schedules/generate');
+            exit;
+        }
+
+        // Verificar que el horario asociado no esté aprobado/enviado
+        $periodoAnio = (int)$importRow['periodo_anio'];
+        $periodoMes = (int)$importRow['periodo_mes'];
+        $campaignId = (int)$importRow['campaign_id'];
+        $fechaInicio = sprintf('%04d-%02d-01', $periodoAnio, $periodoMes);
+
+        $scheduleRow = $this->findMonthlySchedule($pdo, $campaignId, $fechaInicio);
+        if ($scheduleRow && in_array($scheduleRow['status'], ['aprobado', 'enviado'], true)) {
+            $this->setFlash('error', 'No se puede eliminar: el horario esta en estado "' . $scheduleRow['status'] . '".');
+            header('Location: ' . BASE_URL . '/schedules/generate');
+            exit;
+        }
+
+        $pdo->beginTransaction();
+        try {
+            // Si hay un schedule en borrador/rechazado, eliminar sus asignaciónes
+            if ($scheduleRow) {
+                $stmtDel = $pdo->prepare("DELETE FROM shift_assignments WHERE schedule_id = :sid");
+                $stmtDel->execute([':sid' => $scheduleRow['id']]);
+
+                $stmtDel = $pdo->prepare("DELETE FROM schedules WHERE id = :sid");
+                $stmtDel->execute([':sid' => $scheduleRow['id']]);
+            }
+
+            // Eliminar import (CASCADE borra staffing_requirements)
+            $stmtDel = $pdo->prepare("DELETE FROM staffing_imports WHERE id = :id");
+            $stmtDel->execute([':id' => $importId]);
+
+            // Eliminar archivo físico
+            $uploadPath = $_ENV['UPLOAD_PATH'] ?? (dirname(__DIR__, 2) . '/uploads');
+            $archivo = $importRow['archivo_nombre'] ?? '';
+            if ($archivo !== '') {
+                $filePath = $uploadPath . '/' . $archivo;
+                if (file_exists($filePath)) {
+                    unlink($filePath);
+                }
+            }
+
+            $pdo->commit();
+
+            $meses = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+            $this->setFlash(
+                'success',
+                sprintf(
+                    'Importación de %s - %s %d eliminada correctamente.',
+                    $importRow['campaign_nombre'],
+                    $meses[$periodoMes] ?? $periodoMes,
+                    $periodoAnio
+                )
+            );
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $this->setFlash('error', 'Error al eliminar: ' . $e->getMessage());
+        }
+
+        header('Location: ' . BASE_URL . '/schedules/generate');
+        exit;
     }
 
     public function generate(): void
@@ -485,116 +764,116 @@ class ScheduleController
             exit;
         }
 
-        $pdo = Database::getConnection();
-
-        if ($this->canManageAllCampaigns($user)) {
-            $stmt = $pdo->query("
-                SELECT si.campaign_id, si.periodo_anio, si.periodo_mes
-                FROM staffing_imports si
-                JOIN campaigns c ON c.id = si.campaign_id
-                WHERE si.estado = 'procesado'
-                  AND c.estado = 'activa'
-                ORDER BY si.imported_at DESC
-            ");
-        } else {
-            $stmt = $pdo->prepare("
-                SELECT si.campaign_id, si.periodo_anio, si.periodo_mes
-                FROM staffing_imports si
-                JOIN campaigns c ON c.id = si.campaign_id
-                WHERE si.estado = 'procesado'
-                  AND c.estado = 'activa'
-                  AND c.supervisor_id = :uid
-                ORDER BY si.imported_at DESC
-            ");
-            $stmt->execute([':uid' => $user['id']]);
-        }
-
-        $imports = $stmt->fetchAll();
-        if (empty($imports)) {
-            $this->setFlash('error', 'No hay importaciones procesadas para generar horarios.');
-            header('Location: ' . BASE_URL . '/schedules');
+        $importId = (int)($_POST['import_id'] ?? 0);
+        if ($importId <= 0) {
+            $this->setFlash('error', 'Debes selecciónar una importación.');
+            header('Location: ' . BASE_URL . '/schedules/generate');
             exit;
         }
 
-        $created = 0;
-        $updated = 0;
-        $kept = 0;
-        $generatedSchedules = 0;
-        $generatedAssignments = 0;
+        $pdo = Database::getConnection();
+
+        // Obtener la importación selecciónada validando permisos
+        if ($this->canManageAllCampaigns($user)) {
+            $stmt = $pdo->prepare("
+                SELECT si.*, c.nombre as campaign_nombre
+                FROM staffing_imports si
+                JOIN campaigns c ON c.id = si.campaign_id
+                WHERE si.id = :id
+                  AND si.estado = 'procesado'
+                  AND c.estado = 'activa'
+            ");
+            $stmt->execute([':id' => $importId]);
+        } else {
+            $stmt = $pdo->prepare("
+                SELECT si.*, c.nombre as campaign_nombre
+                FROM staffing_imports si
+                JOIN campaigns c ON c.id = si.campaign_id
+                WHERE si.id = :id
+                  AND si.estado = 'procesado'
+                  AND c.estado = 'activa'
+                  AND c.supervisor_id = :uid
+            ");
+            $stmt->execute([':id' => $importId, ':uid' => $user['id']]);
+        }
+
+        $importRow = $stmt->fetch();
+        if (!$importRow) {
+            $this->setFlash('error', 'Importación no encontrada o sin permisos.');
+            header('Location: ' . BASE_URL . '/schedules/generate');
+            exit;
+        }
+
+        $campaignId = (int)$importRow['campaign_id'];
+        $periodoAnio = (int)$importRow['periodo_anio'];
+        $periodoMes = (int)$importRow['periodo_mes'];
+        $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $periodoMes, $periodoAnio);
+
+        $fechaInicio = sprintf('%04d-%02d-01', $periodoAnio, $periodoMes);
+        $fechaFin = sprintf('%04d-%02d-%02d', $periodoAnio, $periodoMes, $daysInMonth);
 
         $pdo->beginTransaction();
         try {
-            foreach ($imports as $importRow) {
-                $campaignId = (int)$importRow['campaign_id'];
-                $periodoAnio = (int)$importRow['periodo_anio'];
-                $periodoMes = (int)$importRow['periodo_mes'];
-                $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $periodoMes, $periodoAnio);
+            $action = $this->syncMonthlyScheduleHeader(
+                $pdo,
+                $campaignId,
+                $periodoAnio,
+                $periodoMes,
+                $fechaInicio,
+                $fechaFin,
+                (int)$user['id']
+            );
 
-                $fechaInicio = sprintf('%04d-%02d-01', $periodoAnio, $periodoMes);
-                $fechaFin = sprintf('%04d-%02d-%02d', $periodoAnio, $periodoMes, $daysInMonth);
-
-                $action = $this->syncMonthlyScheduleHeader(
-                    $pdo,
-                    $campaignId,
-                    $periodoAnio,
-                    $periodoMes,
-                    $fechaInicio,
-                    $fechaFin,
-                    (int)$user['id']
-                );
-
-                if ($action === 'creado') {
-                    $created++;
-                } elseif ($action === 'actualizado') {
-                    $updated++;
-                } else {
-                    $kept++;
-                }
-
-                $scheduleRow = $this->findMonthlySchedule($pdo, $campaignId, $fechaInicio);
-                if (!$scheduleRow) {
-                    continue;
-                }
-
-                $existingAssignments = $this->countScheduleAssignments($pdo, (int)$scheduleRow['id']);
-                $isLockedStatus = in_array($scheduleRow['status'], ['aprobado', 'enviado'], true);
-                $canRegenerate = !$isLockedStatus || ($isLockedStatus && $existingAssignments === 0);
-                if (!$canRegenerate) {
-                    continue;
-                }
-
-                $inserted = $this->buildScheduleAssignments(
-                    $pdo,
-                    (int)$scheduleRow['id'],
-                    $campaignId,
-                    $fechaInicio,
-                    $fechaFin
-                );
-                $generatedSchedules++;
-                $generatedAssignments += $inserted;
+            $scheduleRow = $this->findMonthlySchedule($pdo, $campaignId, $fechaInicio);
+            if (!$scheduleRow) {
+                throw new RuntimeException('No se pudo crear la cabecera del horario.');
             }
 
+            $existingAssignments = $this->countScheduleAssignments($pdo, (int)$scheduleRow['id']);
+            $isLockedStatus = in_array($scheduleRow['status'], ['aprobado', 'enviado'], true);
+
+            if ($isLockedStatus && $existingAssignments > 0) {
+                throw new RuntimeException(
+                    'El horario esta en estado "' . $scheduleRow['status'] . '" y ya tiene asignaciónes. No se puede regenerar.'
+                );
+            }
+
+            $builder = new \App\Services\ScheduleBuilder($pdo);
+            $generatedAssignments = $builder->build(
+                (int)$scheduleRow['id'],
+                $campaignId,
+                $fechaInicio,
+                $fechaFin
+            );
+
             $pdo->commit();
+
+            // Regenerar horarios de campañas fuente que tienen asesores prestados a esta campaña
+            // para que reflejen las horas comprometidas en esta campaña
+            $regeneratedCampaigns = $this->regenerarCampañasFuente(
+                $pdo, $campaignId, $fechaInicio, $fechaFin, (int)$user['id']
+            );
+
+            $meses = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+            $msg = sprintf(
+                'Horario generado para %s - %s %d. Se crearon %d asignaciónes.',
+                $importRow['campaign_nombre'],
+                $meses[$periodoMes] ?? $periodoMes,
+                $periodoAnio,
+                $generatedAssignments
+            );
+            if (!empty($regeneratedCampaigns)) {
+                $msg .= ' Se actualizaron horarios de: ' . implode(', ', $regeneratedCampaigns) . '.';
+            }
+            $this->setFlash('success', $msg);
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
-            $this->setFlash('error', 'No se pudo generar horarios: ' . $e->getMessage());
-            header('Location: ' . BASE_URL . '/schedules');
+            $this->setFlash('error', 'Error al generar horario: ' . $e->getMessage());
+            header('Location: ' . BASE_URL . '/schedules/generate');
             exit;
         }
-
-        $this->setFlash(
-            'success',
-            sprintf(
-                'Generacion completada. Creados: %d, actualizados: %d, mantenidos: %d, horarios generados: %d, asignaciones: %d.',
-                $created,
-                $updated,
-                $kept,
-                $generatedSchedules,
-                $generatedAssignments
-            )
-        );
 
         header('Location: ' . BASE_URL . '/schedules');
         exit;
@@ -779,7 +1058,7 @@ class ScheduleController
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
-            error_log('Error actualizando asignaciones: ' . $e->getMessage());
+            error_log('Error actualizando asignaciónes: ' . $e->getMessage());
             echo json_encode(['success' => false, 'error' => 'Error al guardar cambios']);
         }
 
@@ -1004,431 +1283,56 @@ class ScheduleController
         return (int)$stmt->fetchColumn();
     }
 
-    private function buildScheduleAssignments(
+    /**
+     * Regenera horarios de campañas fuente que tienen asesores prestados a $targetCampaignId.
+     * Esto asegura que el horario de la campaña fuente refleje las horas comprometidas
+     * por sus asesores en la campaña destino.
+     *
+     * Solo regenera si la campaña fuente ya tiene un horario en estado 'borrador' para el mismo período.
+     *
+     * @return string[] Nombres de campañas regeneradas
+     */
+    private function regenerarCampañasFuente(
         PDO $pdo,
-        int $scheduleId,
-        int $campaignId,
+        int $targetCampaignId,
         string $fechaInicio,
-        string $fechaFin
-    ): int {
-        $stmtCampaign = $pdo->prepare("
-            SELECT
-                id,
-                tiene_velada,
-                hora_inicio_operacion,
-                hora_fin_operacion,
-                requiere_vpn_nocturno,
-                hora_inicio_nocturno,
-                hora_fin_nocturno,
-                max_horas_dia
-            FROM campaigns
-            WHERE id = :id
-            LIMIT 1
+        string $fechaFin,
+        int $userId
+    ): array {
+        // Buscar campañas fuente que prestan asesores a esta campaña
+        $stmt = $pdo->prepare("
+            SELECT DISTINCT sa.source_campaign_id, c.nombre
+            FROM shared_advisors sa
+            JOIN campaigns c ON c.id = sa.source_campaign_id
+            WHERE sa.target_campaign_id = :target_id AND sa.estado = 'activo' AND c.estado = 'activa'
         ");
-        $stmtCampaign->execute([':id' => $campaignId]);
-        $campaign = $stmtCampaign->fetch();
-        if (!$campaign) {
-            return 0;
+        $stmt->execute([':target_id' => $targetCampaignId]);
+        $sourceCampaigns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($sourceCampaigns)) return [];
+
+        $regenerated = [];
+
+        foreach ($sourceCampaigns as $sc) {
+            $sourceCampaignId = (int)$sc['source_campaign_id'];
+
+            // Buscar horario existente en borrador para este período
+            $scheduleRow = $this->findMonthlySchedule($pdo, $sourceCampaignId, $fechaInicio);
+            if (!$scheduleRow) continue;
+
+            // Solo regenerar si está en borrador (no tocar aprobados/enviados)
+            if ($scheduleRow['status'] !== 'borrador') continue;
+
+            $scheduleId = (int)$scheduleRow['id'];
+
+            // Regenerar con ScheduleBuilder (cleanupAssignments dentro de build() limpia las previas)
+            $builder = new \App\Services\ScheduleBuilder($pdo);
+            $builder->build($scheduleId, $sourceCampaignId, $fechaInicio, $fechaFin);
+
+            $regenerated[] = $sc['nombre'];
         }
 
-        $stmtCleanupOtherDrafts = $pdo->prepare("
-            DELETE FROM shift_assignments sa
-            USING schedules s
-            WHERE sa.schedule_id = s.id
-              AND sa.campaign_id = :campaign_id
-              AND sa.fecha BETWEEN :fecha_inicio AND :fecha_fin
-              AND s.id <> :schedule_id
-              AND s.status IN ('borrador', 'rechazado')
-        ");
-        $stmtCleanupOtherDrafts->execute([
-            ':campaign_id' => $campaignId,
-            ':fecha_inicio' => $fechaInicio,
-            ':fecha_fin' => $fechaFin,
-            ':schedule_id' => $scheduleId,
-        ]);
-
-        $stmtDeleteCurrent = $pdo->prepare("DELETE FROM shift_assignments WHERE schedule_id = :schedule_id");
-        $stmtDeleteCurrent->execute([':schedule_id' => $scheduleId]);
-
-        $stmtRequirements = $pdo->prepare("
-            SELECT fecha::text AS fecha, hora, asesores_requeridos
-            FROM staffing_requirements
-            WHERE campaign_id = :campaign_id
-              AND fecha BETWEEN :fecha_inicio AND :fecha_fin
-              AND asesores_requeridos > 0
-            ORDER BY fecha ASC, hora ASC
-        ");
-        $stmtRequirements->execute([
-            ':campaign_id' => $campaignId,
-            ':fecha_inicio' => $fechaInicio,
-            ':fecha_fin' => $fechaFin,
-        ]);
-        $requirements = $stmtRequirements->fetchAll();
-        if (empty($requirements)) {
-            return 0;
-        }
-
-        $stmtAdvisors = $pdo->prepare("
-            SELECT
-                a.id,
-                a.hora_inicio_contrato,
-                a.hora_fin_contrato,
-                COALESCE(ac.tiene_vpn, false) AS tiene_vpn,
-                COALESCE(ac.permite_extras, true) AS permite_extras,
-                COALESCE(ac.max_horas_dia, :campaign_max_horas) AS max_horas_dia,
-                COALESCE(ac.tiene_restriccion_medica, false) AS tiene_restriccion_medica,
-                ac.restriccion_hora_inicio,
-                ac.restriccion_hora_fin,
-                ac.restriccion_fecha_hasta,
-                COALESCE(ac.dias_descanso::text, '{}') AS dias_descanso
-            FROM advisors a
-            LEFT JOIN advisor_constraints ac ON ac.advisor_id = a.id
-            WHERE a.campaign_id = :campaign_id
-              AND a.estado = 'activo'
-            ORDER BY a.id ASC
-        ");
-        $stmtAdvisors->execute([
-            ':campaign_id' => $campaignId,
-            ':campaign_max_horas' => (int)$campaign['max_horas_dia'],
-        ]);
-        $advisors = $stmtAdvisors->fetchAll();
-        if (empty($advisors)) {
-            return 0;
-        }
-
-        foreach ($advisors as &$advisor) {
-            $advisor['dias_descanso_parsed'] = $this->parseSmallIntArray($advisor['dias_descanso'] ?? '{}');
-            if (empty($advisor['dias_descanso_parsed'])) {
-                // Si no hay descanso configurado, asigna un dia fijo por semana para evitar 31/31 dias trabajados.
-                $advisor['dias_descanso_parsed'] = [((int)$advisor['id']) % 7];
-            }
-            $advisor['max_horas_dia'] = (int)$advisor['max_horas_dia'];
-            $advisor['permite_extras'] = $this->toBool($advisor['permite_extras']);
-            $advisor['tiene_vpn'] = $this->toBool($advisor['tiene_vpn']);
-            $advisor['tiene_restriccion_medica'] = $this->toBool($advisor['tiene_restriccion_medica']);
-            // Restriccion de horario de contrato (ej: solo trabaja 9-18)
-            $advisor['hora_inicio_contrato'] = $advisor['hora_inicio_contrato'] !== null ? (int)$advisor['hora_inicio_contrato'] : null;
-            $advisor['hora_fin_contrato'] = $advisor['hora_fin_contrato'] !== null ? (int)$advisor['hora_fin_contrato'] : null;
-        }
-        unset($advisor);
-
-        $monthAssignedHours = [];
-        $daysWorked = [];            // [advisorId] => count de dias distintos trabajados
-
-        // Calcular total de dias del periodo
-        $startDt = new \DateTime($fechaInicio);
-        $endDt = new \DateTime($fechaFin);
-        $totalDaysInPeriod = (int)$startDt->diff($endDt)->days + 1;
-
-        // Target de dias libres: maximo 2 por mes, equitativo para todos
-        $targetFreeDays = min(4, max(2, (int)floor($totalDaysInPeriod / 10)));
-
-        $dayAssignedHours = [];      // [advisorId][fecha] => count
-        $dayAssignedHoursList = [];  // [advisorId][fecha] => [hour1, hour2, ...]
-        $nightHoursToday = [];       // [advisorId][fecha] => count de horas nocturnas
-        $insertedAssignments = 0;
-        $coverageAlerts = [];        // Alertas cuando no se puede cubrir
-
-        // Inicializar contadores
-        foreach ($advisors as $advisor) {
-            $monthAssignedHours[(int)$advisor['id']] = 0;
-            $daysWorked[(int)$advisor['id']] = 0;
-        }
-        $stmtInsert = $pdo->prepare("
-            INSERT INTO shift_assignments (
-                schedule_id, advisor_id, campaign_id, fecha, hora, tipo, es_extra
-            ) VALUES (
-                :schedule_id, :advisor_id, :campaign_id, :fecha, :hora, :tipo, :es_extra
-            )
-            ON CONFLICT (advisor_id, fecha, hora) DO NOTHING
-        ");
-
-        foreach ($requirements as $requirement) {
-            $fecha = (string)$requirement['fecha'];
-            $hora = (int)$requirement['hora'];
-            $requeridos = (int)$requirement['asesores_requeridos'];
-            if ($requeridos <= 0) {
-                continue;
-            }
-
-            if (!$this->toBool($campaign['tiene_velada'])) {
-                if (!$this->isHourInRangeWrap(
-                    $hora,
-                    (int)$campaign['hora_inicio_operacion'],
-                    (int)$campaign['hora_fin_operacion']
-                )) {
-                    continue;
-                }
-            }
-
-            $isNightHour = $this->isNightHour(
-                $hora,
-                (int)$campaign['hora_inicio_nocturno'],
-                (int)$campaign['hora_fin_nocturno']
-            );
-            $dayOfWeek = ((int)date('N', strtotime($fecha)) + 6) % 7;
-
-            $alreadySelected = [];
-            $selectedCount = 0;
-
-            // PASADA 1: Buscar asesores respetando dias de descanso
-            // PASADA 2: Si faltan, relajar dias de descanso (prioridad: dimensionamiento)
-            for ($pass = 1; $pass <= 2 && $selectedCount < $requeridos; $pass++) {
-                while ($selectedCount < $requeridos) {
-                    $eligible = [];
-
-                    foreach ($advisors as $advisor) {
-                        $advisorId = (int)$advisor['id'];
-                        if (isset($alreadySelected[$advisorId])) {
-                            continue;
-                        }
-
-                        // En pasada 1: respetar dias de descanso
-                        // En pasada 2: ignorar dias de descanso para cubrir dimensionamiento
-                        $isRestDay = in_array($dayOfWeek, $advisor['dias_descanso_parsed'], true);
-                        if ($pass === 1 && $isRestDay) {
-                            continue;
-                        }
-
-                        // En pasada 2: verificar que tenga al menos 2 dias libres en el MES
-                        // Prioridad: dimensionamiento. Solo proteger minimo 2 dias libres mensuales.
-                        if ($pass === 2 && $isRestDay) {
-                            $currentDaysWorkedAdvisor = $daysWorked[$advisorId] ?? 0;
-                            $currentFreeDaysMonth = $totalDaysInPeriod - $currentDaysWorkedAdvisor;
-                            // Minimo 2 dias libres por mes
-                            if ($currentFreeDaysMonth <= 2) {
-                                continue;
-                            }
-                        }
-
-                        $currentDayHours = $dayAssignedHours[$advisorId][$fecha] ?? 0;
-                        if ($currentDayHours >= $advisor['max_horas_dia']) {
-                            continue;
-                        }
-
-                        if (!$advisor['permite_extras'] && $currentDayHours >= 8) {
-                            continue;
-                        }
-
-                        if ($isNightHour && $this->toBool($campaign['requiere_vpn_nocturno']) && !$advisor['tiene_vpn']) {
-                            continue;
-                        }
-
-                        // Limitar horas nocturnas por dia (max 8h en velada)
-                        $currentNightHours = $nightHoursToday[$advisorId][$fecha] ?? 0;
-                        if ($isNightHour && $currentNightHours >= 8) {
-                            continue;
-                        }
-
-                        // Verificar restriccion de horario de contrato (ej: solo trabaja 8-18)
-                        // Solo aplicar si NO es horario completo (0-23)
-                        $horaInicioContrato = $advisor['hora_inicio_contrato'];
-                        $horaFinContrato = $advisor['hora_fin_contrato'];
-                        $tieneRestriccionHorario = $horaInicioContrato !== null
-                            && $horaFinContrato !== null
-                            && !($horaInicioContrato === 0 && $horaFinContrato === 23);
-
-                        if ($tieneRestriccionHorario) {
-                            if ($hora < $horaInicioContrato || $hora >= $horaFinContrato) {
-                                continue;
-                            }
-                        }
-
-                        if ($this->isMedicalRestrictionBlocking($advisor, $fecha, $hora)) {
-                            continue;
-                        }
-
-                        // Calcular bonus de continuidad: priorizar si ya trabaja hora adyacente
-                        $assignedHoursList = $dayAssignedHoursList[$advisorId][$fecha] ?? [];
-                        $hasContinuity = in_array($hora - 1, $assignedHoursList, true) ||
-                                         in_array($hora + 1, $assignedHoursList, true);
-                        // Penalizar si crearia un hueco (ya tiene horas pero esta no es adyacente)
-                        $wouldCreateGap = !empty($assignedHoursList) && !$hasContinuity;
-
-                        // Calcular dias libres actuales de este asesor
-                        $currentDaysWorked = $daysWorked[$advisorId] ?? 0;
-                        $currentFreeDays = $totalDaysInPeriod - $currentDaysWorked;
-
-                        // Calcular si ya trabajo hoy (para priorizar extender jornada vs nuevo dia)
-                        $alreadyWorkingToday = !empty($dayAssignedHours[$advisorId][$fecha]);
-
-                        $eligible[] = [
-                            'id' => $advisorId,
-                            'month_hours' => $monthAssignedHours[$advisorId] ?? 0,
-                            'day_hours' => $currentDayHours,
-                            'days_worked' => $currentDaysWorked,
-                            'free_days' => $currentFreeDays,
-                            'is_rest_day' => $isRestDay ? 1 : 0,
-                            'has_continuity' => $hasContinuity ? 1 : 0,
-                            'would_create_gap' => $wouldCreateGap ? 1 : 0,
-                            'already_working_today' => $alreadyWorkingToday ? 1 : 0,
-                        ];
-                    }
-
-                    if (empty($eligible)) {
-                        break; // Salir del while, pasar a siguiente pasada
-                    }
-
-                    // Ordenar: priorizar equidad de dias libres y turnos corridos
-                    // 1. NO en dia de descanso configurado
-                    // 2. Ya esta trabajando hoy (extender jornada en vez de nuevo dia)
-                    // 3. Tiene continuidad (ya trabaja hora adyacente)
-                    // 4. NO crearia hueco
-                    // 5. MAS dias libres (para equilibrar - quien tiene mas libres trabaja primero)
-                    // 6. Menos horas mensuales (balancear horas)
-                    // 7. Menos horas diarias
-                    usort($eligible, static function (array $a, array $b): int {
-                        return [
-                            $a['is_rest_day'],
-                            -$a['already_working_today'],  // Priorizar quien ya trabaja hoy
-                            -$a['has_continuity'],
-                            $a['would_create_gap'],
-                            -$a['free_days'],              // Mas dias libres = trabaja primero
-                            $a['month_hours'],
-                            $a['day_hours'],
-                            $a['id']
-                        ] <=> [
-                            $b['is_rest_day'],
-                            -$b['already_working_today'],
-                            -$b['has_continuity'],
-                            $b['would_create_gap'],
-                            -$b['free_days'],
-                            $b['month_hours'],
-                            $b['day_hours'],
-                            $b['id']
-                        ];
-                    });
-
-                    $candidate = $eligible[0];
-                    $advisorId = (int)$candidate['id'];
-                    $hoursTodayBeforeInsert = (int)$candidate['day_hours'];
-                    $isExtra = $hoursTodayBeforeInsert >= 8;
-                    $shiftType = $isNightHour ? 'nocturno' : ($isExtra ? 'extra' : 'normal');
-
-                    $stmtInsert->execute([
-                        ':schedule_id' => $scheduleId,
-                        ':advisor_id' => $advisorId,
-                        ':campaign_id' => $campaignId,
-                        ':fecha' => $fecha,
-                        ':hora' => $hora,
-                        ':tipo' => $shiftType,
-                        ':es_extra' => $isExtra ? 'true' : 'false',
-                    ]);
-
-                    $alreadySelected[$advisorId] = true;
-
-                    if ($stmtInsert->rowCount() > 0) {
-                        $selectedCount++;
-                        $insertedAssignments++;
-
-                        // Es primer hora de este asesor en este dia? Incrementar dias trabajados
-                        $wasFirstHourToday = empty($dayAssignedHours[$advisorId][$fecha]);
-                        if ($wasFirstHourToday) {
-                            $daysWorked[$advisorId] = ($daysWorked[$advisorId] ?? 0) + 1;
-                        }
-
-                        $dayAssignedHours[$advisorId][$fecha] = ($dayAssignedHours[$advisorId][$fecha] ?? 0) + 1;
-                        $monthAssignedHours[$advisorId] = ($monthAssignedHours[$advisorId] ?? 0) + 1;
-                        // Rastrear lista de horas para calcular continuidad
-                        if (!isset($dayAssignedHoursList[$advisorId][$fecha])) {
-                            $dayAssignedHoursList[$advisorId][$fecha] = [];
-                        }
-                        $dayAssignedHoursList[$advisorId][$fecha][] = $hora;
-                        // Rastrear horas nocturnas
-                        if ($isNightHour) {
-                            $nightHoursToday[$advisorId][$fecha] = ($nightHoursToday[$advisorId][$fecha] ?? 0) + 1;
-                        }
-                    }
-                }
-            }
-
-            // Registrar alerta si no se cubrió el dimensionamiento
-            if ($selectedCount < $requeridos) {
-                $coverageAlerts[] = [
-                    'fecha' => $fecha,
-                    'hora' => $hora,
-                    'requeridos' => $requeridos,
-                    'asignados' => $selectedCount,
-                    'deficit' => $requeridos - $selectedCount,
-                ];
-            }
-        }
-
-        // Guardar alertas de cobertura en sesion si hay deficit
-        if (!empty($coverageAlerts)) {
-            $_SESSION['schedule_alerts'] = $coverageAlerts;
-            $_SESSION['schedule_alerts_summary'] = sprintf(
-                'Atencion: No se pudo cubrir el dimensionamiento en %d franjas horarias. Deficit total: %d horas-asesor.',
-                count($coverageAlerts),
-                array_sum(array_column($coverageAlerts, 'deficit'))
-            );
-        } else {
-            unset($_SESSION['schedule_alerts'], $_SESSION['schedule_alerts_summary']);
-        }
-
-        return $insertedAssignments;
-    }
-
-    private function parseSmallIntArray(string $pgArray): array
-    {
-        $trimmed = trim($pgArray, '{}');
-        if ($trimmed === '') {
-            return [];
-        }
-
-        $items = array_map('trim', explode(',', $trimmed));
-        $result = [];
-        foreach ($items as $item) {
-            if ($item === '' || !is_numeric($item)) {
-                continue;
-            }
-            $result[] = (int)$item;
-        }
-
-        return array_values(array_unique($result));
-    }
-
-    private function isNightHour(int $hour, int $nightStart, int $nightEnd): bool
-    {
-        return $this->isHourInRangeWrap($hour, $nightStart, $nightEnd);
-    }
-
-    private function isHourInRangeWrap(int $hour, int $start, int $end): bool
-    {
-        if ($start <= $end) {
-            return $hour >= $start && $hour <= $end;
-        }
-
-        return $hour >= $start || $hour <= $end;
-    }
-
-    private function isMedicalRestrictionBlocking(array $advisor, string $fecha, int $hora): bool
-    {
-        if (!$this->toBool($advisor['tiene_restriccion_medica'] ?? false)) {
-            return false;
-        }
-
-        $hasta = $advisor['restriccion_fecha_hasta'] ?? null;
-        if (!empty($hasta) && $fecha > (string)$hasta) {
-            return false;
-        }
-
-        $inicio = $advisor['restriccion_hora_inicio'];
-        $fin = $advisor['restriccion_hora_fin'];
-
-        if ($inicio === null && $fin === null) {
-            return true;
-        }
-
-        if ($inicio !== null && $fin !== null) {
-            return $this->isHourInRangeWrap($hora, (int)$inicio, (int)$fin);
-        }
-
-        if ($inicio !== null) {
-            return $hora >= (int)$inicio;
-        }
-
-        return $hora <= (int)$fin;
+        return $regenerated;
     }
 
     private function toBool(mixed $value): bool
@@ -1443,6 +1347,45 @@ class ScheduleController
 
         $normalized = strtolower(trim((string)$value));
         return in_array($normalized, ['1', 'true', 't', 'yes', 'y', 'on'], true);
+    }
+
+    /**
+     * Extrae la hora (0-23) de un texto de celda.
+     * Soporta formatos:
+     *   "10:00"           → 10
+     *   "10:00 - 11:00"   → 10
+     *   "0:00"            → 0
+     *   "9:00 - 10:00"    → 9
+     *   Excel time serial (0.416667 = 10:00)
+     */
+    private function parseHourFromCell(string $cellValue): ?int
+    {
+        $cellValue = trim($cellValue);
+
+        // Formato rango: "10:00 - 11:00" → extraer la primera hora
+        if (preg_match('/^(\d{1,2})\s*:\s*\d{2}\s*-/', $cellValue, $m)) {
+            return (int)$m[1];
+        }
+
+        // Formato simple: "10:00" o "0:00"
+        if (preg_match('/^(\d{1,2})\s*:\s*\d{2}$/', $cellValue, $m)) {
+            return (int)$m[1];
+        }
+
+        // Excel time serial (float entre 0 y 1): 0.0 = 0:00, 0.416667 = 10:00
+        if (is_numeric($cellValue)) {
+            $floatVal = (float)$cellValue;
+            if ($floatVal >= 0 && $floatVal < 1) {
+                return (int)round($floatVal * 24);
+            }
+            // Podría ser hora entera sin minutos: "10" → 10
+            $intVal = (int)$floatVal;
+            if ($intVal >= 0 && $intVal <= 23 && $floatVal == $intVal) {
+                return $intVal;
+            }
+        }
+
+        return null;
     }
 
     private function normalizeRequiredAdvisors(mixed $value): int
