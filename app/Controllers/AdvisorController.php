@@ -683,7 +683,7 @@ class AdvisorController
 
     private function canManageAllCampaigns(array $user): bool
     {
-        return in_array($user['rol'] ?? '', ['admin', 'coordinador'], true);
+        return in_array($user['rol'] ?? '', ['admin', 'gerente', 'coordinador'], true);
     }
 
     private function canAccessAdvisor(\PDO $pdo, int $advisorId, array $user): bool

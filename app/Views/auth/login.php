@@ -180,6 +180,7 @@
                 <div class="d-flex flex-column-fluid flex-center mt-30 mt-lg-0">
                     <div class="login-form login-signin" style="width: 100%; max-width: 450px;">
                         <form class="form" method="POST" action="<?= htmlspecialchars($_SERVER['REQUEST_URI']) ?>">
+                            <?= \App\Services\CsrfService::field() ?>
                             <!-- Header -->
                             <div class="text-center mb-15">
                                 <h2 class="font-weight-bolder text-dark-75 mb-3" style="font-size: 2rem;">
@@ -263,48 +264,6 @@
                             </div>
                         </form>
 
-                        <!-- Usuarios de prueba (solo para desarrollo) -->
-                        <div class="mt-15 pt-10 border-top">
-                            <p class="text-center text-muted font-size-sm mb-5">Usuarios de prueba</p>
-                            <div class="row">
-                                <div class="col-6">
-                                    <div class="bg-light-primary rounded p-4 mb-3">
-                                        <div class="d-flex align-items-center">
-                                            <span class="label label-primary label-inline mr-2">Admin</span>
-                                        </div>
-                                        <small class="text-muted d-block mt-2">zajo.deox@gmail.com</small>
-                                        <small class="text-muted">Zick913!</small>
-                                    </div>
-                                </div>
-                                <div class="col-6">
-                                    <div class="bg-light-success rounded p-4 mb-3">
-                                        <div class="d-flex align-items-center">
-                                            <span class="label label-success label-inline mr-2">Coord</span>
-                                        </div>
-                                        <small class="text-muted d-block mt-2">carlos@turnoflow.com</small>
-                                        <small class="text-muted">coord123</small>
-                                    </div>
-                                </div>
-                                <div class="col-6">
-                                    <div class="bg-light-warning rounded p-4">
-                                        <div class="d-flex align-items-center">
-                                            <span class="label label-warning label-inline mr-2">Super</span>
-                                        </div>
-                                        <small class="text-muted d-block mt-2">maria@turnoflow.com</small>
-                                        <small class="text-muted">supervisor123</small>
-                                    </div>
-                                </div>
-                                <div class="col-6">
-                                    <div class="bg-light-info rounded p-4">
-                                        <div class="d-flex align-items-center">
-                                            <span class="label label-info label-inline mr-2">Asesor</span>
-                                        </div>
-                                        <small class="text-muted d-block mt-2">diana@turnoflow.com</small>
-                                        <small class="text-muted">asesor123</small>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
 

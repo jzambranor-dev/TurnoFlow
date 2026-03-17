@@ -35,6 +35,7 @@ ob_start();
         </div>
         <div class="panel-body">
             <form method="POST" action="<?= BASE_URL ?>/campaigns/<?= $campaign['id'] ?>/activities">
+                <?= \App\Services\CsrfService::field() ?>
                 <div class="form-group">
                     <label class="form-label required">Nombre</label>
                     <input type="text" name="nombre" class="form-control" placeholder="Ej: VIP, Retenciones, Soporte..." required>

@@ -48,7 +48,8 @@ class AuthController
                 $user = $stmt->fetch();
 
                 if ($user && password_verify($password, $user['password_hash'])) {
-                    // Login exitoso
+                    // Login exitoso — regenerar sesion para prevenir session fixation
+                    session_regenerate_id(true);
                     $_SESSION['user'] = [
                         'id' => $user['id'],
                         'nombre' => $user['nombre'],

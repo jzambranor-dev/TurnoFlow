@@ -96,59 +96,115 @@ ON CONFLICT (codigo) DO NOTHING;
 
 -- =============================================
 -- ROLES BASE
+-- Jerarquia: gerente > coordinador > supervisor > asesor
+-- admin es un super-rol de sistema (normalmente no se asigna)
 -- =============================================
 
--- Actualizar descripcion de roles existentes
-UPDATE roles SET descripcion = 'Acceso total al sistema' WHERE nombre = 'admin';
-UPDATE roles SET descripcion = 'Aprueba horarios, gestiona campanas y asesores' WHERE nombre = 'coordinador';
-UPDATE roles SET descripcion = 'Gestiona horarios de sus campanas' WHERE nombre = 'supervisor';
-UPDATE roles SET descripcion = 'Consulta su horario personal' WHERE nombre = 'asesor';
-
--- Insertar rol admin si no existe
+-- Insertar roles si no existen
 INSERT INTO roles (nombre, descripcion) VALUES
-('admin', 'Acceso total al sistema')
-ON CONFLICT (nombre) DO NOTHING;
+('admin', 'Super administrador del sistema - acceso total')
+ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
+
+INSERT INTO roles (nombre, descripcion) VALUES
+('gerente', 'Nivel mas alto operativo: mismos permisos que admin, gestiona todo el sistema')
+ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
+
+INSERT INTO roles (nombre, descripcion) VALUES
+('coordinador', 'Gestiona campanas, asesores y aprueba horarios. No puede eliminar usuarios ni modificar roles')
+ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
+
+INSERT INTO roles (nombre, descripcion) VALUES
+('supervisor', 'Control total de su campana: crea usuarios/asesores de su equipo, importa, genera, envia horarios, descarga reportes')
+ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
+
+INSERT INTO roles (nombre, descripcion) VALUES
+('asesor', 'Consulta su horario personal y realiza check-in de asistencia')
+ON CONFLICT (nombre) DO UPDATE SET descripcion = EXCLUDED.descripcion;
 
 -- =============================================
 -- ASIGNAR PERMISOS A ROLES
 -- =============================================
 
--- Admin: TODOS los permisos
+-- Limpiar asignaciones existentes para reconstruir
+DELETE FROM role_permissions WHERE rol_id IN (SELECT id FROM roles WHERE nombre IN ('admin', 'gerente', 'coordinador', 'supervisor', 'asesor'));
+
+-- -----------------------------------------------
+-- ADMIN: TODOS los permisos (super-admin)
+-- -----------------------------------------------
 INSERT INTO role_permissions (rol_id, permission_id)
 SELECT r.id, p.id
 FROM roles r, permissions p
 WHERE r.nombre = 'admin'
 ON CONFLICT (rol_id, permission_id) DO NOTHING;
 
--- Coordinador: Campanas, Asesores, Horarios (aprobar), Reportes
+-- -----------------------------------------------
+-- GERENTE: Mismos permisos que admin (todos)
+-- Puede hacer todo en el sistema
+-- -----------------------------------------------
+INSERT INTO role_permissions (rol_id, permission_id)
+SELECT r.id, p.id
+FROM roles r, permissions p
+WHERE r.nombre = 'gerente'
+ON CONFLICT (rol_id, permission_id) DO NOTHING;
+
+-- -----------------------------------------------
+-- COORDINADOR: Todo EXCEPTO eliminar usuarios y modificar roles
+-- Gestiona campanas, asesores, aprueba horarios, ve reportes
+-- -----------------------------------------------
 INSERT INTO role_permissions (rol_id, permission_id)
 SELECT r.id, p.id
 FROM roles r, permissions p
 WHERE r.nombre = 'coordinador'
 AND p.codigo IN (
     'dashboard.view',
-    'campaigns.view', 'campaigns.create', 'campaigns.edit',
-    'advisors.view', 'advisors.create', 'advisors.edit', 'advisors.constraints',
-    'schedules.view', 'schedules.approve',
-    'reports.view', 'reports.export'
+    -- Usuarios: puede ver, crear, editar, resetear clave, pero NO eliminar
+    'users.view', 'users.create', 'users.edit', 'users.reset_password',
+    -- Roles: solo ver, NO crear/editar/eliminar
+    'roles.view',
+    -- Campanas: control total
+    'campaigns.view', 'campaigns.create', 'campaigns.edit', 'campaigns.delete',
+    -- Asesores: control total
+    'advisors.view', 'advisors.create', 'advisors.edit', 'advisors.delete', 'advisors.constraints',
+    -- Horarios: todo incluyendo aprobar
+    'schedules.view', 'schedules.create', 'schedules.edit', 'schedules.import',
+    'schedules.generate', 'schedules.submit', 'schedules.approve',
+    -- Reportes: completo
+    'reports.view', 'reports.export',
+    -- Configuracion: ver y editar
+    'settings.view', 'settings.edit'
 )
 ON CONFLICT (rol_id, permission_id) DO NOTHING;
 
--- Supervisor: Horarios (crear, importar, generar, enviar), ver asesores
+-- -----------------------------------------------
+-- SUPERVISOR: Control total de SU campana
+-- Puede crear usuarios (asesores de su equipo), resetear claves de su equipo
+-- Importar dimensionamiento, generar y enviar horarios
+-- Descargar reportes de sus campanas
+-- NO puede aprobar horarios, NO puede gestionar roles
+-- -----------------------------------------------
 INSERT INTO role_permissions (rol_id, permission_id)
 SELECT r.id, p.id
 FROM roles r, permissions p
 WHERE r.nombre = 'supervisor'
 AND p.codigo IN (
     'dashboard.view',
-    'advisors.view',
+    -- Usuarios: puede crear (para su equipo) y resetear claves
+    'users.view', 'users.create', 'users.reset_password',
+    -- Campanas: solo ver (las suyas, filtrado en controlador)
+    'campaigns.view',
+    -- Asesores: control total de los de su campana
+    'advisors.view', 'advisors.create', 'advisors.edit', 'advisors.constraints',
+    -- Horarios: todo EXCEPTO aprobar
     'schedules.view', 'schedules.create', 'schedules.edit', 'schedules.import',
     'schedules.generate', 'schedules.submit',
-    'reports.view'
+    -- Reportes: ver y exportar (de sus campanas)
+    'reports.view', 'reports.export'
 )
 ON CONFLICT (rol_id, permission_id) DO NOTHING;
 
--- Asesor: Solo ver su horario
+-- -----------------------------------------------
+-- ASESOR: Solo ver su horario y hacer check-in
+-- -----------------------------------------------
 INSERT INTO role_permissions (rol_id, permission_id)
 SELECT r.id, p.id
 FROM roles r, permissions p

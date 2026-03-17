@@ -20,10 +20,16 @@ ob_start();
             <h1 class="page-header-title"><?= htmlspecialchars($campaign['nombre']) ?></h1>
             <p class="page-header-subtitle">Reporte de horas trabajadas — <?= $monthNames[$month] ?> <?= $year ?></p>
         </div>
-        <a href="<?= BASE_URL ?>/reports" class="btn btn-secondary">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-            Volver
-        </a>
+        <div style="display: flex; gap: 8px;">
+            <a href="<?= BASE_URL ?>/reports/hours/<?= $campaign['id'] ?>/export?year=<?= $year ?>&month=<?= $month ?>" class="btn btn-success">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                Exportar Excel
+            </a>
+            <a href="<?= BASE_URL ?>/reports" class="btn btn-secondary">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                Volver
+            </a>
+        </div>
     </div>
 
     <!-- Period selector -->
@@ -125,9 +131,13 @@ ob_start();
                             <?php if ($row['tipo'] === 'compartido'): ?>
                             <span class="badge-shared">(P)</span>
                             <?php endif; ?>
+                            <?php if ($row['totalLent'] > 0): ?>
+                            <span class="badge-lent" title="<?= $row['totalLent'] ?>h prestadas a otra campaña"><?= $row['totalLent'] ?>h</span>
+                            <?php endif; ?>
                         </td>
                         <?php for ($d = 1; $d <= $daysInMonth; $d++):
                             $h = $row['daily'][$d] ?? 0;
+                            $lent = $row['dailyLent'][$d] ?? 0;
                             $dateStr = sprintf('%04d-%02d-%02d', $year, $month, $d);
                             $dow = (int)date('N', strtotime($dateStr));
                             $isWeekend = $dow >= 6;
@@ -137,11 +147,19 @@ ob_start();
                             elseif ($h >= 4) $cellClass = 'cell-mid';
                             else $cellClass = 'cell-low';
                         ?>
-                        <td class="day-col <?= $isWeekend ? 'weekend' : '' ?> <?= $cellClass ?>">
-                            <?= $h > 0 ? $h : '' ?>
+                        <td class="day-col <?= $isWeekend ? 'weekend' : '' ?> <?= $cellClass ?> <?= $lent > 0 ? 'cell-has-lent' : '' ?>"
+                            <?= $lent > 0 ? 'title="' . ($h - $lent) . 'h campaña + ' . $lent . 'h prestada"' : '' ?>>
+                            <?php if ($h > 0): ?>
+                                <?= $h ?><?php if ($lent > 0): ?><span class="lent-indicator">*</span><?php endif; ?>
+                            <?php endif; ?>
                         </td>
                         <?php endfor; ?>
-                        <td class="total-col total-hours"><?= $row['total'] ?></td>
+                        <td class="total-col total-hours">
+                            <?= $row['total'] ?>
+                            <?php if ($row['totalLent'] > 0): ?>
+                            <span class="total-lent-detail" title="<?= ($row['total'] - $row['totalLent']) ?>h propias + <?= $row['totalLent'] ?>h prestadas">(<?= $row['totalLent'] ?>)</span>
+                            <?php endif; ?>
+                        </td>
                         <td class="total-col"><?= $row['target'] !== null ? $row['target'] : '-' ?></td>
                         <td class="total-col compliance-cell <?= $row['compliance'] !== null ? ($row['compliance'] >= 95 ? 'comp-ok' : ($row['compliance'] >= 80 ? 'comp-warn' : 'comp-low')) : '' ?>">
                             <?= $row['compliance'] !== null ? $row['compliance'] . '%' : '-' ?>
@@ -168,6 +186,25 @@ ob_start();
                 </tfoot>
             </table>
         </div>
+
+        <!-- Leyenda -->
+        <?php
+        $anyLent = !empty(array_filter($reportData, fn($r) => $r['totalLent'] > 0));
+        $anyShared = !empty(array_filter($reportData, fn($r) => $r['tipo'] === 'compartido'));
+        ?>
+        <?php if ($anyLent || $anyShared): ?>
+        <div style="padding: 12px 20px; border-top: 1px solid #f1f5f9; display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.78rem; color: #64748b;">
+            <?php if ($anyLent): ?>
+            <span><span class="lent-indicator" style="font-size: 0.85rem;">*</span> = Incluye horas prestadas a otra campaña</span>
+            <span><span class="badge-lent" style="font-size: 0.65rem;">3h</span> = Total horas prestadas del asesor</span>
+            <span><span class="total-lent-detail" style="font-size: 0.72rem;">(X)</span> = Horas prestadas del total</span>
+            <?php endif; ?>
+            <?php if ($anyShared): ?>
+            <span><span class="badge-shared" style="font-size: 0.72rem;">(P)</span> = Asesor prestado desde otra campaña</span>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
         <?php endif; ?>
     </div>
 </div>
@@ -294,6 +331,39 @@ $extraStyles[] = <<<'STYLE'
     .report-hours-table tfoot td {
         background: var(--corp-gray-50);
         border-top: 2px solid var(--corp-gray-200);
+    }
+
+    /* Horas prestadas a otra campaña */
+    .badge-lent {
+        display: inline-block;
+        font-size: 0.6rem;
+        font-weight: 700;
+        color: #7c3aed;
+        background: #f3e8ff;
+        padding: 1px 5px;
+        border-radius: 4px;
+        margin-left: 4px;
+        vertical-align: middle;
+    }
+
+    .lent-indicator {
+        color: #7c3aed;
+        font-weight: 700;
+        font-size: 0.7rem;
+        vertical-align: super;
+    }
+
+    .cell-has-lent {
+        position: relative;
+        border-bottom: 2px solid rgba(124, 58, 237, 0.35) !important;
+    }
+
+    .total-lent-detail {
+        display: inline;
+        font-size: 0.65rem;
+        font-weight: 600;
+        color: #7c3aed;
+        margin-left: 2px;
     }
 
     .form-select {

@@ -235,6 +235,331 @@ class ScheduleBuilder
     }
 
     // ==========================================================
+    // BUILD PARCIAL — regenera solo desde una fecha en adelante
+    // ==========================================================
+
+    /**
+     * Regenera asignaciones solo desde $fromDate en adelante,
+     * preservando intactas las asignaciones anteriores a esa fecha.
+     */
+    public function buildPartial(
+        int $scheduleId,
+        int $campaignId,
+        string $fechaInicio,
+        string $fechaFin,
+        string $fromDate
+    ): int {
+        $this->scheduleId = $scheduleId;
+        $this->campaignId = $campaignId;
+
+        if (!$this->loadCampaign($campaignId)) return 0;
+        if (!$this->loadAdvisors($campaignId)) return 0;
+        $this->loadSharedAdvisorIds($campaignId);
+        if (!$this->loadRequirements($campaignId, $fechaInicio, $fechaFin)) return 0;
+        $this->loadActivityAssignments($campaignId);
+        $this->setupVelada();
+
+        // Inicializar estructuras
+        $this->assignments = [];
+        $this->advisorSchedule = [];
+        $this->advisorMonthHours = [];
+        $this->diasLibres = [];
+        $this->advisorCapacity = [];
+        $this->advisorDailyCapacity = [];
+        $this->advisorFreeTarget = [];
+        foreach ($this->advisors as $id => $adv) {
+            $this->advisorMonthHours[$id] = 0;
+            $this->advisorSchedule[$id] = [];
+            $this->diasLibres[$id] = [];
+        }
+        foreach ($this->sharedAdvisorIds as $id => $_) {
+            if (!isset($this->advisorMonthHours[$id])) {
+                $this->advisorMonthHours[$id] = 0;
+                $this->advisorSchedule[$id] = [];
+            }
+        }
+        $this->veladaMap = [];
+
+        // Cargar compromisos externos
+        $this->loadSharedOutCommitments($campaignId, $fechaInicio, $fechaFin);
+
+        // === PARCIAL: Cargar asignaciones existentes (fecha < fromDate) ===
+        $this->loadExistingAssignments($scheduleId, $fromDate);
+
+        // === PARCIAL: Eliminar solo asignaciones >= fromDate ===
+        $this->cleanupAssignmentsPartial($scheduleId, $campaignId, $fechaInicio, $fechaFin, $fromDate);
+
+        // Generar rango completo y separar fechas futuras
+        $todasFechas = $this->generateDateRange($fechaInicio, $fechaFin);
+        $fechasPrevias = [];
+        $fechasFuturas = [];
+        foreach ($todasFechas as $f) {
+            if ($f < $fromDate) {
+                $fechasPrevias[] = $f;
+            } else {
+                $fechasFuturas[] = $f;
+            }
+        }
+
+        $totalDias = count($todasFechas);
+        $this->totalDiasPeriodo = $totalDias;
+
+        // Calcular cuotas (sobre todo el periodo)
+        $totalHorasReq = 0;
+        foreach ($this->requirements as $f => $hrs) {
+            $totalHorasReq += array_sum($hrs);
+        }
+        $numAsesores = count($this->advisors);
+        $horasCuotaMensual = $totalHorasReq / $numAsesores;
+
+        $maxLibresTotalPeriodo = 0;
+        foreach ($this->requirements as $f => $hrs) {
+            $totalHorasDia = array_sum($hrs);
+            $picoHora = max($hrs);
+            $asesoresMinDia = max($picoHora, (int)ceil($totalHorasDia / $this->jornadaObjetivo));
+            $maxLibresTotalPeriodo += max(0, $numAsesores - $asesoresMinDia);
+        }
+
+        foreach ($this->advisors as $id => $adv) {
+            $ventanaContrato = $adv['hora_fin_contrato'] - $adv['hora_inicio_contrato'] + 1;
+            $dailyCap = min($ventanaContrato, $this->jornadaObjetivo);
+            $this->advisorDailyCapacity[$id] = $dailyCap;
+
+            $externas = $this->externalHours[$id] ?? 0;
+            $cuotaAjustada = $horasCuotaMensual + $externas;
+            $diasTrabajo = ($dailyCap > 0) ? (int)ceil($cuotaAjustada / $dailyCap) : $totalDias;
+            $freeTarget = max(4, min(8, $totalDias - $diasTrabajo));
+            $this->advisorFreeTarget[$id] = $freeTarget;
+            $this->advisorCapacity[$id] = max(1, ($totalDias - $freeTarget) * $dailyCap - $externas);
+        }
+
+        $totalLibresSolicitados = array_sum($this->advisorFreeTarget);
+        if ($totalLibresSolicitados > $maxLibresTotalPeriodo) {
+            $libresDisponibles = $maxLibresTotalPeriodo;
+            foreach ($this->advisors as $id => $adv) {
+                $proporcion = $this->advisorFreeTarget[$id] / max(1, $totalLibresSolicitados);
+                $nuevoTarget = max(1, (int)round($libresDisponibles * $proporcion));
+                $this->advisorFreeTarget[$id] = $nuevoTarget;
+                $dailyCap = $this->advisorDailyCapacity[$id];
+                $externas = $this->externalHours[$id] ?? 0;
+                $this->advisorCapacity[$id] = max(1, ($totalDias - $nuevoTarget) * $dailyCap - $externas);
+            }
+        }
+
+        // === Detectar días libres ya usados en periodo previo ===
+        foreach ($this->advisors as $id => $adv) {
+            foreach ($fechasPrevias as $f) {
+                $horasEnDia = $this->advisorSchedule[$id][$f] ?? [];
+                if (empty($horasEnDia)) {
+                    // El asesor no trabajó ese día = día libre
+                    $this->diasLibres[$id][] = $f;
+                }
+            }
+        }
+
+        // Ajustar freeTarget restando libres ya usados, para solo distribuir los faltantes
+        $freeTargetRestante = [];
+        foreach ($this->advisors as $id => $adv) {
+            $libresUsados = count($this->diasLibres[$id]);
+            $freeTargetRestante[$id] = max(0, $this->advisorFreeTarget[$id] - $libresUsados);
+        }
+
+        // FASE 1: Días libres — solo en fechas futuras, con targets ajustados
+        $savedFreeTargets = $this->advisorFreeTarget;
+        foreach ($this->advisors as $id => $adv) {
+            $this->advisorFreeTarget[$id] = $freeTargetRestante[$id];
+        }
+        $this->distribuirDiasLibres($fechasFuturas);
+        $this->advisorFreeTarget = $savedFreeTargets;
+
+        // FASE 2: Velada rotativa — solo fechas futuras
+        $this->asignarVeladaRotativa($fechasFuturas);
+
+        // FASE 3: Actividades fijas (asesores propios) — solo fechas futuras
+        foreach ($fechasFuturas as $fecha) {
+            $this->asignarActividadesFijas($fecha, false);
+        }
+
+        // Pre-análisis nocturna
+        $this->reservaNocturna = [];
+        foreach ($fechasFuturas as $fecha) {
+            $reqDia = $this->requirements[$fecha] ?? [];
+            $horasNocReq = 0;
+            foreach ($reqDia as $hora => $req) {
+                if ($this->esHoraNocturna($hora) && $req > 0) {
+                    $horasNocReq += $req;
+                }
+            }
+            $this->reservaNocturna[$fecha] = $horasNocReq;
+        }
+
+        // FASE 4: Asignación principal — solo fechas futuras
+        foreach ($fechasFuturas as $fecha) {
+            $this->asignarDia($fecha);
+        }
+
+        // FASE 5: Consolidar + Reparar
+        for ($ciclo = 0; $ciclo < 5; $ciclo++) {
+            $this->repararDeficit($fechasFuturas);
+            $cortas = $this->contarJornadasCortas($fechasFuturas);
+            if ($cortas === 0) break;
+            $this->consolidarJornadasCortas($fechasFuturas);
+        }
+        $this->repararDeficit($fechasFuturas);
+
+        // FASE 6: Multi-gaps
+        $this->limpiarMultiGaps($fechasFuturas);
+        $this->repararDeficit($fechasFuturas);
+
+        // FASE 7: Asesores compartidos
+        if (!empty($this->sharedAdvisorIds)) {
+            foreach ($fechasFuturas as $fecha) {
+                $this->asignarActividadesFijas($fecha, true);
+            }
+            $this->delegarJornadasTriviales($fechasFuturas);
+            $this->repararDeficit($fechasFuturas);
+        }
+
+        // FASE 8: Breaks
+        $this->tieneBreak = $this->toBool($this->campaign['tiene_break'] ?? false);
+        if ($this->tieneBreak) {
+            $durMin = (int)($this->campaign['duracion_break_min'] ?? 30);
+            $this->breakFraccion = round($durMin / 60, 2);
+            $this->breakAssignments = [];
+            $this->asignarBreaks($fechasFuturas);
+        }
+
+        // FASE 9: Insertar — solo las nuevas asignaciones (fechas futuras)
+        return $this->insertAssignmentsPartial($fromDate);
+    }
+
+    /**
+     * Carga asignaciones existentes del schedule para fechas < fromDate.
+     * Las registra en advisorSchedule y advisorMonthHours (pero NO en assignments,
+     * porque no queremos re-insertarlas).
+     */
+    private function loadExistingAssignments(int $scheduleId, string $fromDate): void
+    {
+        $stmt = $this->pdo->prepare("
+            SELECT advisor_id, fecha::text AS fecha, hora
+            FROM shift_assignments
+            WHERE schedule_id = :sid AND fecha < :from_date
+            ORDER BY advisor_id, fecha, hora
+        ");
+        $stmt->execute([':sid' => $scheduleId, ':from_date' => $fromDate]);
+
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $advId = (int)$row['advisor_id'];
+            $fecha = $row['fecha'];
+            $hora = (int)$row['hora'];
+
+            if (!isset($this->advisorSchedule[$advId])) {
+                $this->advisorSchedule[$advId] = [];
+            }
+            if (!isset($this->advisorSchedule[$advId][$fecha])) {
+                $this->advisorSchedule[$advId][$fecha] = [];
+            }
+            if (!in_array($hora, $this->advisorSchedule[$advId][$fecha], true)) {
+                $this->advisorSchedule[$advId][$fecha][] = $hora;
+                $this->advisorMonthHours[$advId] = ($this->advisorMonthHours[$advId] ?? 0) + 1;
+            }
+        }
+    }
+
+    /**
+     * Elimina asignaciones solo desde $fromDate en adelante.
+     */
+    private function cleanupAssignmentsPartial(
+        int $scheduleId,
+        int $campaignId,
+        string $fechaInicio,
+        string $fechaFin,
+        string $fromDate
+    ): void {
+        // Limpiar asignaciones de otros schedules borrador para esta campaña (solo >= fromDate)
+        $stmt = $this->pdo->prepare("
+            DELETE FROM shift_assignments sa USING schedules s
+            WHERE sa.schedule_id = s.id AND sa.campaign_id = :cid
+              AND sa.fecha BETWEEN :from_date AND :ff AND s.id <> :sid
+              AND s.status IN ('borrador', 'rechazado')
+        ");
+        $stmt->execute([':cid' => $campaignId, ':from_date' => $fromDate, ':ff' => $fechaFin, ':sid' => $scheduleId]);
+
+        // Limpiar asignaciones de este schedule solo >= fromDate
+        $stmt = $this->pdo->prepare("
+            DELETE FROM shift_assignments WHERE schedule_id = :sid AND fecha >= :from_date
+        ");
+        $stmt->execute([':sid' => $scheduleId, ':from_date' => $fromDate]);
+
+        // Limpiar asignaciones de asesores compartidos en otras campañas (solo >= fromDate)
+        if (!empty($this->sharedAdvisorIds)) {
+            $sharedIds = array_keys($this->sharedAdvisorIds);
+            $placeholders = implode(',', array_fill(0, count($sharedIds), '?'));
+            $params = array_merge(
+                array_map('intval', $sharedIds),
+                [$fromDate, $fechaFin, $campaignId]
+            );
+
+            $stmt = $this->pdo->prepare("
+                DELETE FROM shift_assignments sa
+                USING schedules s
+                WHERE sa.schedule_id = s.id
+                  AND sa.advisor_id IN ($placeholders)
+                  AND sa.fecha BETWEEN ? AND ?
+                  AND sa.campaign_id <> ?
+                  AND s.status IN ('borrador', 'rechazado')
+            ");
+            $stmt->execute($params);
+        }
+    }
+
+    /**
+     * Inserta solo asignaciones para fechas >= $fromDate.
+     */
+    private function insertAssignmentsPartial(string $fromDate): int
+    {
+        $stmt = $this->pdo->prepare("
+            INSERT INTO shift_assignments (schedule_id, advisor_id, campaign_id, fecha, hora, tipo, es_extra, modalidad)
+            VALUES (:sid, :aid, :cid, :fecha, :hora, :tipo, :extra, :mod)
+            ON CONFLICT (advisor_id, fecha, hora) DO NOTHING
+        ");
+
+        $count = 0;
+        foreach ($this->assignments as $fecha => $horasData) {
+            if ($fecha < $fromDate) continue; // Solo insertar fechas nuevas
+
+            foreach ($horasData as $hora => $advisorIds) {
+                foreach ($advisorIds as $advId) {
+                    $horasHoy = count($this->advisorSchedule[$advId][$fecha] ?? []);
+                    $esExtra = $horasHoy > 8;
+
+                    $esBreak = isset($this->breakAssignments[$advId][$fecha])
+                        && $this->breakAssignments[$advId][$fecha] === $hora;
+
+                    if ($esBreak) {
+                        $tipo = 'break';
+                    } else {
+                        $tipo = $this->esHoraNocturna($hora) ? 'nocturno' : ($esExtra ? 'extra' : 'normal');
+                    }
+
+                    $stmt->execute([
+                        ':sid' => $this->scheduleId,
+                        ':aid' => $advId,
+                        ':cid' => $this->campaignId,
+                        ':fecha' => $fecha,
+                        ':hora' => $hora,
+                        ':tipo' => $tipo,
+                        ':extra' => $esBreak ? 'false' : ($esExtra ? 'true' : 'false'),
+                        ':mod' => $this->getModalidad($hora),
+                    ]);
+                    if ($stmt->rowCount() > 0) $count++;
+                }
+            }
+        }
+        return $count;
+    }
+
+    // ==========================================================
     // FASE 1: DÍAS LIBRES
     // ==========================================================
 

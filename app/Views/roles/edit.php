@@ -3,7 +3,7 @@
  * TurnoFlow - Editar Rol y Permisos
  */
 
-$isBase = in_array($role['nombre'], ['admin', 'coordinador', 'supervisor', 'asesor']);
+$isBase = in_array($role['nombre'], ['admin', 'gerente', 'coordinador', 'supervisor', 'asesor']);
 
 $moduloNames = [
     'dashboard' => 'Dashboard',
@@ -41,6 +41,7 @@ ob_start();
     </div>
 
     <form action="<?= BASE_URL ?>/roles/<?= $role['id'] ?>" method="POST">
+        <?= \App\Services\CsrfService::field() ?>
         <div class="form-grid">
             <!-- Info del rol -->
             <div class="form-card">

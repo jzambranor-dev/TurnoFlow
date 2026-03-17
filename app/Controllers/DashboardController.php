@@ -23,7 +23,7 @@ class DashboardController
         $pendingSchedules = [];
         $recentActivities = [];
 
-        // Stats comunes para admin, gerente, coordinador
+        // Stats comunes para admin, gerente, coordinador (jerarquia alta)
         if (in_array($rol, ['admin', 'gerente', 'coordinador'])) {
             $stmt = $pdo->query("SELECT COUNT(*) FROM campaigns WHERE estado = 'activa'");
             $stats['campaigns'] = $stmt->fetchColumn();
@@ -116,12 +116,81 @@ class DashboardController
 
         // Stats para asesor
         if ($rol === 'asesor') {
-            // Buscar si el usuario tiene un advisor asociado (por email o crear relación)
-            $stmt = $pdo->query("SELECT COUNT(*) FROM shift_assignments WHERE fecha >= CURRENT_DATE");
-            $stats['upcoming_shifts'] = $stmt->fetchColumn();
+            // Buscar advisor vinculado al usuario (por nombre)
+            $advisorId = null;
+            $firstName = trim((string)($user['nombre'] ?? ''));
+            $lastName = trim((string)($user['apellido'] ?? ''));
 
-            $stats['hours_this_month'] = 0;
-            $stats['days_worked'] = 0;
+            if ($firstName !== '' && $lastName !== '') {
+                $stmt = $pdo->prepare("
+                    SELECT id FROM advisors
+                    WHERE LOWER(nombres || ' ' || apellidos) = LOWER(:full_name)
+                       OR LOWER(apellidos || ' ' || nombres) = LOWER(:full_name)
+                    LIMIT 1
+                ");
+                $stmt->execute([':full_name' => $firstName . ' ' . $lastName]);
+                $advisorId = $stmt->fetchColumn() ?: null;
+
+                if (!$advisorId) {
+                    $stmt = $pdo->prepare("
+                        SELECT id FROM advisors
+                        WHERE LOWER(nombres) LIKE LOWER(:first) AND LOWER(apellidos) LIKE LOWER(:last)
+                        LIMIT 1
+                    ");
+                    $stmt->execute([':first' => '%' . $firstName . '%', ':last' => '%' . $lastName . '%']);
+                    $advisorId = $stmt->fetchColumn() ?: null;
+                }
+            }
+
+            if ($advisorId) {
+                $mesActualNum = (int)date('n');
+                $anioActual = (int)date('Y');
+
+                // Turnos próximos
+                $stmt = $pdo->prepare("
+                    SELECT COUNT(DISTINCT sa.fecha)
+                    FROM shift_assignments sa
+                    JOIN schedules s ON s.id = sa.schedule_id AND s.status = 'aprobado'
+                    WHERE sa.advisor_id = :aid AND sa.fecha >= CURRENT_DATE
+                ");
+                $stmt->execute([':aid' => $advisorId]);
+                $stats['upcoming_shifts'] = $stmt->fetchColumn();
+
+                // Días trabajados este mes (con asistencia confirmada: presente o tardanza)
+                $stmt = $pdo->prepare("
+                    SELECT COUNT(DISTINCT att.fecha)
+                    FROM attendance att
+                    WHERE att.advisor_id = :aid
+                      AND EXTRACT(MONTH FROM att.fecha) = :mes
+                      AND EXTRACT(YEAR FROM att.fecha) = :anio
+                      AND att.status IN ('presente', 'tardanza', 'salida_anticipada')
+                ");
+                $stmt->execute([':aid' => $advisorId, ':mes' => $mesActualNum, ':anio' => $anioActual]);
+                $stats['days_worked'] = (int)$stmt->fetchColumn();
+
+                // Horas trabajadas este mes (sumar horas de shift_assignments en días con asistencia confirmada)
+                $stmt = $pdo->prepare("
+                    SELECT COUNT(*)
+                    FROM shift_assignments sa
+                    JOIN schedules s ON s.id = sa.schedule_id AND s.status = 'aprobado'
+                    WHERE sa.advisor_id = :aid
+                      AND EXTRACT(MONTH FROM sa.fecha) = :mes
+                      AND EXTRACT(YEAR FROM sa.fecha) = :anio
+                      AND sa.tipo != 'break'
+                      AND EXISTS (
+                          SELECT 1 FROM attendance att
+                          WHERE att.advisor_id = sa.advisor_id
+                            AND att.fecha = sa.fecha
+                            AND att.status IN ('presente', 'tardanza', 'salida_anticipada')
+                      )
+                ");
+                $stmt->execute([':aid' => $advisorId, ':mes' => $mesActualNum, ':anio' => $anioActual]);
+                $stats['hours_this_month'] = (int)$stmt->fetchColumn();
+            } else {
+                $stats['upcoming_shifts'] = 0;
+                $stats['hours_this_month'] = 0;
+                $stats['days_worked'] = 0;
+            }
         }
 
         $pageTitle = 'Dashboard';

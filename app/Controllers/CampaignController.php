@@ -49,7 +49,7 @@ class CampaignController
 
     private function canManageAllCampaigns(array $user): bool
     {
-        return in_array($user['rol'] ?? '', ['admin', 'coordinador'], true);
+        return in_array($user['rol'] ?? '', ['admin', 'gerente', 'coordinador'], true);
     }
 
     public function create(): void

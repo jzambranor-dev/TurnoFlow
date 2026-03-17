@@ -48,6 +48,7 @@ ob_start();
                 </p>
                 <?php else: ?>
                 <form method="POST" action="<?= BASE_URL ?>/activities/<?= $activity['id'] ?>/assignments">
+                    <?= \App\Services\CsrfService::field() ?>
                     <div class="form-group">
                         <label class="form-label required">Asesor</label>
                         <select name="advisor_id" class="form-control" required>

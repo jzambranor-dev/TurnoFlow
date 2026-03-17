@@ -145,7 +145,7 @@ class RoleController
         }
 
         // No permitir editar nombre de roles base
-        $rolesBase = ['admin', 'coordinador', 'supervisor', 'asesor'];
+        $rolesBase = ['admin', 'gerente', 'coordinador', 'supervisor', 'asesor'];
         $canEditName = !in_array($role['nombre'], $rolesBase);
 
         try {
@@ -185,7 +185,7 @@ class RoleController
         }
 
         // No permitir eliminar roles base
-        $rolesBase = ['admin', 'coordinador', 'supervisor', 'asesor'];
+        $rolesBase = ['admin', 'gerente', 'coordinador', 'supervisor', 'asesor'];
         if (in_array($role['nombre'], $rolesBase)) {
             $_SESSION['error'] = 'No se pueden eliminar los roles base del sistema';
             header('Location: ' . BASE_URL . '/roles');

@@ -1145,3 +1145,400 @@ textarea.form-control { resize: vertical; min-height: 80px; }
     .campaigns-grid { grid-template-columns: 1fr; }
     .form-grid-2 { grid-template-columns: 1fr; }
 }
+
+/* ==========================================
+   CRUD Enhancements - Presencia Visual
+   ========================================== */
+
+/* Animacion de entrada para filas de tabla */
+@keyframes fadeInRow {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.table-row-animated {
+    animation: fadeInRow 0.3s ease forwards;
+    opacity: 0;
+}
+
+/* Panel counter badge junto al titulo */
+.panel-counter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 22px;
+    padding: 0 8px;
+    background: var(--corp-primary);
+    color: #fff;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    margin-left: 8px;
+}
+
+/* Keyboard shortcut badge en search */
+.search-kbd {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    color: #94a3b8;
+    font-family: inherit;
+    line-height: 1;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* Badge con dot de estado */
+.badge-with-dot {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* Alerts dismissible mejorados */
+.alert-dismissible {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    padding-right: 40px;
+}
+
+.alert-close {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.6;
+    line-height: 1;
+    padding: 4px;
+}
+
+.alert-close:hover { opacity: 1; }
+
+/* Table footer */
+.table-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    border-top: 1px solid #f1f5f9;
+    background: #fafbfc;
+    font-size: 0.8rem;
+    color: var(--corp-gray-500);
+}
+
+.table-footer-info strong {
+    color: var(--corp-gray-700);
+}
+
+/* Page size selector */
+.tf-page-size {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--corp-gray-500);
+}
+.tf-page-size select {
+    padding: 4px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: var(--corp-gray-700);
+    background: #fff;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.tf-page-size select:focus {
+    border-color: var(--corp-primary);
+}
+
+/* Pagination controls */
+.tf-pagination {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.tf-pagination button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 32px;
+    padding: 0 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #fff;
+    color: var(--corp-gray-600);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.tf-pagination button:hover:not(:disabled) {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+.tf-pagination button.active {
+    background: var(--corp-primary);
+    color: #fff;
+    border-color: var(--corp-primary);
+}
+.tf-pagination button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.tf-pagination button svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+.tf-pagination .tf-page-ellipsis {
+    min-width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    color: var(--corp-gray-400);
+    border: none;
+    background: none;
+    cursor: default;
+}
+
+/* Stat cards clickable filter */
+.stat-clickable {
+    transition: all 0.2s ease;
+    cursor: pointer;
+    user-select: none;
+}
+
+.stat-clickable:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.stat-active-filter {
+    box-shadow: 0 0 0 2px var(--corp-primary), 0 4px 12px rgba(37, 99, 235, 0.15) !important;
+    transform: translateY(-2px);
+}
+
+/* Filter panel mejorado */
+.filter-panel {
+    margin-bottom: 16px;
+    padding: 16px 20px;
+}
+
+.filter-form {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.filter-select {
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    min-width: 220px;
+    font-size: 14px;
+    background: #fff;
+    transition: border-color 0.15s;
+}
+
+.filter-select:focus {
+    outline: none;
+    border-color: var(--corp-primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.filter-results {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.results-count {
+    color: var(--corp-gray-500);
+    font-size: 0.85rem;
+}
+
+.filter-active-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    background: #dbeafe;
+    color: var(--corp-primary);
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+/* Campaign icon para la tabla de campañas */
+.campaign-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* Client name styling */
+.client-name {
+    font-size: 0.875rem;
+    color: var(--corp-gray-700);
+    font-weight: 500;
+}
+
+/* Missing field indicator */
+.missing-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #d97706;
+    font-style: italic;
+    font-size: 0.85rem;
+}
+
+.missing-field svg {
+    color: #d97706;
+    fill: #d97706;
+}
+
+/* Hover effects mejorados para action buttons */
+.action-btn {
+    transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+    transform: scale(1.1);
+}
+
+/* Table row hover mejorado */
+.data-table tbody tr {
+    transition: background-color 0.15s ease;
+}
+
+.data-table tbody tr:hover {
+    background: #f0f7ff;
+}
+
+/* Stat icon dentro de stat-mini */
+.stat-mini .stat-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.stat-mini .stat-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* Form step indicator para create/edit */
+.form-step-indicator {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 12px;
+}
+
+.form-step-number {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--corp-primary);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+/* Breadcrumb-style back link para formularios */
+.form-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: var(--corp-gray-500);
+    margin-bottom: 8px;
+}
+
+.form-breadcrumb a {
+    color: var(--corp-primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.form-breadcrumb a:hover {
+    text-decoration: underline;
+}
+
+.form-breadcrumb svg {
+    width: 14px;
+    height: 14px;
+    fill: var(--corp-gray-400);
+}
+
+/* Required field asterisk styling */
+.required {
+    color: var(--corp-danger);
+    font-weight: 700;
+}
+
+/* Info box mejorado */
+.info-box {
+    transition: all 0.2s ease;
+}
+
+.info-box:hover {
+    transform: translateX(4px);
+}
+
+/* Responsive adjustments para nuevos elementos */
+@media (max-width: 768px) {
+    .filter-form { flex-direction: column; align-items: stretch; }
+    .filter-group { flex-direction: column; align-items: stretch; }
+    .filter-select { min-width: auto; }
+    .filter-results { justify-content: center; }
+    .search-kbd { display: none; }
+    .table-footer { flex-direction: column; gap: 8px; text-align: center; }
+    .tf-pagination { justify-content: center; flex-wrap: wrap; }
+    .tf-page-size { justify-content: center; }
+}
+
+@media (max-width: 576px) {
+    .stat-mini .stat-icon { width: 32px; height: 32px; }
+    .stat-mini .stat-icon svg { width: 16px !important; height: 16px !important; }
+    .panel-counter { display: none; }
+}

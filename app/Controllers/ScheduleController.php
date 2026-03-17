@@ -879,6 +879,139 @@ class ScheduleController
         exit;
     }
 
+    public function regeneratePartial(): void
+    {
+        AuthService::requirePermission('schedules.generate');
+
+        $user = $_SESSION['user'] ?? null;
+        if (!$user) {
+            header('Location: ' . BASE_URL . '/login');
+            exit;
+        }
+
+        $importId = (int)($_POST['import_id'] ?? 0);
+        $fromDate = trim($_POST['from_date'] ?? '');
+
+        if ($importId <= 0 || $fromDate === '') {
+            $this->setFlash('error', 'Debes seleccionar una importación y una fecha de inicio.');
+            header('Location: ' . BASE_URL . '/schedules/generate');
+            exit;
+        }
+
+        // Validar formato de fecha
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $fromDate)) {
+            $this->setFlash('error', 'Formato de fecha inválido.');
+            header('Location: ' . BASE_URL . '/schedules/generate');
+            exit;
+        }
+
+        $pdo = Database::getConnection();
+
+        // Obtener la importación validando permisos
+        if ($this->canManageAllCampaigns($user)) {
+            $stmt = $pdo->prepare("
+                SELECT si.*, c.nombre as campaign_nombre
+                FROM staffing_imports si
+                JOIN campaigns c ON c.id = si.campaign_id
+                WHERE si.id = :id
+                  AND si.estado = 'procesado'
+                  AND c.estado = 'activa'
+            ");
+            $stmt->execute([':id' => $importId]);
+        } else {
+            $stmt = $pdo->prepare("
+                SELECT si.*, c.nombre as campaign_nombre
+                FROM staffing_imports si
+                JOIN campaigns c ON c.id = si.campaign_id
+                WHERE si.id = :id
+                  AND si.estado = 'procesado'
+                  AND c.estado = 'activa'
+                  AND c.supervisor_id = :uid
+            ");
+            $stmt->execute([':id' => $importId, ':uid' => $user['id']]);
+        }
+
+        $importRow = $stmt->fetch();
+        if (!$importRow) {
+            $this->setFlash('error', 'Importación no encontrada o sin permisos.');
+            header('Location: ' . BASE_URL . '/schedules/generate');
+            exit;
+        }
+
+        $campaignId = (int)$importRow['campaign_id'];
+        $periodoAnio = (int)$importRow['periodo_anio'];
+        $periodoMes = (int)$importRow['periodo_mes'];
+        $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $periodoMes, $periodoAnio);
+
+        $fechaInicio = sprintf('%04d-%02d-01', $periodoAnio, $periodoMes);
+        $fechaFin = sprintf('%04d-%02d-%02d', $periodoAnio, $periodoMes, $daysInMonth);
+
+        // Validar que fromDate esté dentro del rango del periodo
+        if ($fromDate < $fechaInicio || $fromDate > $fechaFin) {
+            $this->setFlash('error', 'La fecha debe estar dentro del periodo del horario.');
+            header('Location: ' . BASE_URL . '/schedules/generate');
+            exit;
+        }
+
+        // Buscar schedule existente
+        $scheduleRow = $this->findMonthlySchedule($pdo, $campaignId, $fechaInicio);
+        if (!$scheduleRow) {
+            $this->setFlash('error', 'No existe un horario para este periodo. Usa "Generar Horario" primero.');
+            header('Location: ' . BASE_URL . '/schedules/generate');
+            exit;
+        }
+
+        $isLocked = in_array($scheduleRow['status'], ['aprobado', 'enviado'], true);
+        if ($isLocked) {
+            $this->setFlash('error', 'El horario está en estado "' . $scheduleRow['status'] . '" y no se puede modificar.');
+            header('Location: ' . BASE_URL . '/schedules/generate');
+            exit;
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $builder = new \App\Services\ScheduleBuilder($pdo);
+            $generatedAssignments = $builder->buildPartial(
+                (int)$scheduleRow['id'],
+                $campaignId,
+                $fechaInicio,
+                $fechaFin,
+                $fromDate
+            );
+
+            $pdo->commit();
+
+            // Regenerar campañas fuente
+            $regeneratedCampaigns = $this->regenerarCampañasFuente(
+                $pdo, $campaignId, $fechaInicio, $fechaFin, (int)$user['id']
+            );
+
+            $meses = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+            $msg = sprintf(
+                'Horario ajustado desde %s para %s - %s %d. Se crearon %d asignaciones nuevas.',
+                date('d/m/Y', strtotime($fromDate)),
+                $importRow['campaign_nombre'],
+                $meses[$periodoMes] ?? $periodoMes,
+                $periodoAnio,
+                $generatedAssignments
+            );
+            if (!empty($regeneratedCampaigns)) {
+                $msg .= ' Se actualizaron horarios de: ' . implode(', ', $regeneratedCampaigns) . '.';
+            }
+            $this->setFlash('success', $msg);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $this->setFlash('error', 'Error al ajustar horario: ' . $e->getMessage());
+            header('Location: ' . BASE_URL . '/schedules/generate');
+            exit;
+        }
+
+        header('Location: ' . BASE_URL . '/schedules');
+        exit;
+    }
+
     public function submit(int $id): void
     {
         AuthService::requirePermission('schedules.submit');
@@ -961,8 +1094,9 @@ class ScheduleController
             exit;
         }
 
-        // Solo editable en borrador o rechazado
-        if (!in_array($schedule['status'], ['borrador', 'rechazado'], true)) {
+        // Editable en borrador/rechazado (cualquier fecha) o aprobado (solo hoy y futuro)
+        $isApproved = $schedule['status'] === 'aprobado';
+        if (!in_array($schedule['status'], ['borrador', 'rechazado', 'aprobado'], true)) {
             echo json_encode(['success' => false, 'error' => 'Este horario no se puede editar (estado: ' . $schedule['status'] . ')']);
             exit;
         }
@@ -991,8 +1125,19 @@ class ScheduleController
             exit;
         }
 
+        // Si el horario esta aprobado, solo permitir editar hoy y dias futuros
+        if ($isApproved) {
+            $today = date('Y-m-d');
+            if ($date < $today) {
+                echo json_encode(['success' => false, 'error' => 'No se pueden modificar dias pasados en un horario aprobado']);
+                exit;
+            }
+        }
+
         $added = 0;
         $removed = 0;
+        $breaks = 0;
+        $activities = 0;
         $campaignId = (int)$schedule['campaign_id'];
 
         $pdo->beginTransaction();
@@ -1001,9 +1146,9 @@ class ScheduleController
                 INSERT INTO shift_assignments (
                     schedule_id, advisor_id, campaign_id, fecha, hora, tipo, es_extra
                 ) VALUES (
-                    :schedule_id, :advisor_id, :campaign_id, :fecha, :hora, 'normal', false
+                    :schedule_id, :advisor_id, :campaign_id, :fecha, :hora, :tipo, false
                 )
-                ON CONFLICT (advisor_id, fecha, hora) DO NOTHING
+                ON CONFLICT (advisor_id, fecha, hora) DO UPDATE SET tipo = EXCLUDED.tipo
             ");
 
             $stmtDelete = $pdo->prepare("
@@ -1014,13 +1159,33 @@ class ScheduleController
                   AND hora = :hora
             ");
 
+            // Para asignar actividades
+            $stmtActivityUpsert = $pdo->prepare("
+                INSERT INTO advisor_activity_assignments (activity_id, advisor_id, hora_inicio, hora_fin, dias_semana, activo)
+                VALUES (:activity_id, :advisor_id, :hora_inicio, :hora_fin, :dias_semana, true)
+                ON CONFLICT (advisor_id, activity_id) DO UPDATE SET
+                    hora_inicio = LEAST(advisor_activity_assignments.hora_inicio, EXCLUDED.hora_inicio),
+                    hora_fin = GREATEST(advisor_activity_assignments.hora_fin, EXCLUDED.hora_fin),
+                    activo = true
+            ");
+
+            // Calcular dia de la semana para la actividad (0=Lun, 6=Dom)
+            $dow = (int)date('N', strtotime($date)) - 1;
+
             foreach ($changes as $change) {
                 $action = (string)($change['action'] ?? '');
                 $advisorId = (int)($change['advisor_id'] ?? 0);
                 $hour = (int)($change['hour'] ?? -1);
+                $tipo = (string)($change['tipo'] ?? 'normal');
+                $activityId = !empty($change['activity_id']) ? (int)$change['activity_id'] : null;
 
                 if ($advisorId <= 0 || $hour < 0 || $hour > 23) {
                     continue;
+                }
+
+                // Validar tipo permitido
+                if (!in_array($tipo, ['normal', 'break'], true)) {
+                    $tipo = 'normal';
                 }
 
                 if ($action === 'add') {
@@ -1030,9 +1195,25 @@ class ScheduleController
                         ':campaign_id' => $campaignId,
                         ':fecha' => $date,
                         ':hora' => $hour,
+                        ':tipo' => $tipo,
                     ]);
                     if ($stmtInsert->rowCount() > 0) {
                         $added++;
+                        if ($tipo === 'break') {
+                            $breaks++;
+                        }
+                    }
+
+                    // Si tiene actividad, crear/actualizar la asignación
+                    if ($activityId) {
+                        $stmtActivityUpsert->execute([
+                            ':activity_id' => $activityId,
+                            ':advisor_id' => $advisorId,
+                            ':hora_inicio' => $hour,
+                            ':hora_fin' => $hour + 1,
+                            ':dias_semana' => '{' . $dow . '}',
+                        ]);
+                        $activities++;
                     }
                 } elseif ($action === 'remove') {
                     $stmtDelete->execute([
@@ -1053,6 +1234,8 @@ class ScheduleController
                 'success' => true,
                 'added' => $added,
                 'removed' => $removed,
+                'breaks' => $breaks,
+                'activities' => $activities,
             ]);
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
@@ -1115,7 +1298,23 @@ class ScheduleController
                 ':anio' => $currentYear
             ]);
             $currentSchedule = $stmt->fetch();
+
+            // Cargar check-in de hoy del asesor
+            if ($currentSchedule) {
+                $stmt = $pdo->prepare("
+                    SELECT checkin_at FROM advisor_checkins
+                    WHERE advisor_id = :aid AND schedule_id = :sid AND fecha = :fecha
+                ");
+                $stmt->execute([
+                    ':aid' => $advisor['id'],
+                    ':sid' => $currentSchedule['id'],
+                    ':fecha' => date('Y-m-d'),
+                ]);
+                $todayCheckin = $stmt->fetchColumn();
+            }
         }
+
+        $todayCheckin = $todayCheckin ?? false;
 
         $pageTitle = 'Mi Horario';
         $currentPage = 'my-schedule';
@@ -1181,9 +1380,281 @@ class ScheduleController
         return $row ?: null;
     }
 
+    /**
+     * Vista de seguimiento diario del horario aprobado.
+     * Permite al supervisor confirmar cumplimiento por asesor/dia.
+     */
+    public function dailyTracking(int $id): void
+    {
+        AuthService::requirePermission('schedules.view');
+
+        $user = $_SESSION['user'];
+        $pdo = Database::getConnection();
+
+        $stmt = $pdo->prepare("
+            SELECT s.*, c.nombre as campaign_nombre, c.supervisor_id, c.id as campaign_id
+            FROM schedules s
+            JOIN campaigns c ON c.id = s.campaign_id
+            WHERE s.id = :id
+        ");
+        $stmt->execute([':id' => $id]);
+        $schedule = $stmt->fetch();
+
+        if (!$schedule) {
+            header('Location: ' . BASE_URL . '/schedules');
+            exit;
+        }
+
+        // Verificar permisos
+        if (!$this->canManageAllCampaigns($user)) {
+            $role = $user['rol'] ?? '';
+            if ($role === 'supervisor' && (int)$schedule['supervisor_id'] !== (int)$user['id']) {
+                header('Location: ' . BASE_URL . '/schedules');
+                exit;
+            }
+        }
+
+        $today = date('Y-m-d');
+
+        // Asignaciones del horario
+        $stmt = $pdo->prepare("
+            SELECT sa.advisor_id, sa.fecha, sa.hora, sa.tipo,
+                   a.nombres, a.apellidos
+            FROM shift_assignments sa
+            JOIN advisors a ON a.id = sa.advisor_id
+            WHERE sa.schedule_id = :schedule_id
+            ORDER BY sa.fecha, a.apellidos, sa.hora
+        ");
+        $stmt->execute([':schedule_id' => $id]);
+        $assignments = $stmt->fetchAll();
+
+        // Registros de asistencia existentes
+        $stmt = $pdo->prepare("
+            SELECT att.advisor_id, att.fecha, att.status, att.notas,
+                   att.hora_real_inicio, att.hora_real_fin, att.horas_trabajadas
+            FROM attendance att
+            JOIN shift_assignments sa ON sa.advisor_id = att.advisor_id
+                AND sa.fecha = att.fecha
+                AND sa.schedule_id = :schedule_id
+            GROUP BY att.id, att.advisor_id, att.fecha, att.status, att.notas,
+                     att.hora_real_inicio, att.hora_real_fin, att.horas_trabajadas
+        ");
+        $stmt->execute([':schedule_id' => $id]);
+        $attendanceRows = $stmt->fetchAll();
+
+        $attendanceMap = [];
+        foreach ($attendanceRows as $row) {
+            $attendanceMap[$row['advisor_id'] . ':' . $row['fecha']] = $row;
+        }
+
+        // Construir estructura por fecha => advisors
+        $dates = [];
+        $advisorsMap = [];
+        $dailyData = []; // [fecha][advisor_id] => { hours, attendance }
+
+        foreach ($assignments as $a) {
+            $fecha = (string)$a['fecha'];
+            $advId = (int)$a['advisor_id'];
+
+            if (!in_array($fecha, $dates, true)) {
+                $dates[] = $fecha;
+            }
+
+            if (!isset($advisorsMap[$advId])) {
+                $advisorsMap[$advId] = [
+                    'id' => $advId,
+                    'name' => trim($a['apellidos'] . ' ' . $a['nombres']),
+                ];
+            }
+
+            if (!isset($dailyData[$fecha][$advId])) {
+                $dailyData[$fecha][$advId] = [
+                    'hours' => 0,
+                    'break_hours' => 0,
+                ];
+            }
+            if ($a['tipo'] === 'break') {
+                $dailyData[$fecha][$advId]['break_hours'] += 0.5;
+            } else {
+                $dailyData[$fecha][$advId]['hours']++;
+            }
+        }
+
+        sort($dates);
+        uasort($advisorsMap, static fn($a, $b) => strcasecmp($a['name'], $b['name']));
+
+        // Cargar check-ins de asesores
+        $stmt = $pdo->prepare("
+            SELECT advisor_id, fecha, checkin_at
+            FROM advisor_checkins
+            WHERE schedule_id = :schedule_id
+        ");
+        $stmt->execute([':schedule_id' => $id]);
+        $checkinRows = $stmt->fetchAll();
+
+        $checkinMap = []; // "advisorId:fecha" => checkin_at
+        foreach ($checkinRows as $row) {
+            $checkinMap[$row['advisor_id'] . ':' . $row['fecha']] = $row['checkin_at'];
+        }
+
+        $userRole = $user['rol'] ?? '';
+        $canBypassCheckin = in_array($userRole, ['admin', 'gerente', 'coordinador'], true);
+
+        $pageTitle = 'Seguimiento Diario';
+        $currentPage = 'schedules';
+
+        include APP_PATH . '/Views/schedules/tracking.php';
+    }
+
+    /**
+     * API: Registrar/actualizar asistencia de un asesor en un dia.
+     */
+    public function saveAttendance(int $scheduleId): void
+    {
+        AuthService::requirePermission('schedules.edit');
+
+        header('Content-Type: application/json');
+
+        $user = $_SESSION['user'];
+        $pdo = Database::getConnection();
+
+        $stmt = $pdo->prepare("
+            SELECT s.*, c.supervisor_id
+            FROM schedules s
+            JOIN campaigns c ON c.id = s.campaign_id
+            WHERE s.id = :id
+        ");
+        $stmt->execute([':id' => $scheduleId]);
+        $schedule = $stmt->fetch();
+
+        if (!$schedule) {
+            echo json_encode(['success' => false, 'error' => 'Horario no encontrado']);
+            exit;
+        }
+
+        if (!$this->canManageAllCampaigns($user)) {
+            if ((int)$schedule['supervisor_id'] !== (int)$user['id']) {
+                echo json_encode(['success' => false, 'error' => 'Sin permisos']);
+                exit;
+            }
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true);
+        if (!$input || empty($input['records'])) {
+            echo json_encode(['success' => false, 'error' => 'Datos invalidos']);
+            exit;
+        }
+
+        $records = (array)$input['records'];
+        $validStatuses = ['presente', 'ausente', 'tardanza', 'salida_anticipada', 'licencia_medica', 'maternidad'];
+        $saved = 0;
+
+        $pdo->beginTransaction();
+        try {
+            $stmtUpsert = $pdo->prepare("
+                INSERT INTO attendance (advisor_id, fecha, status, notas, registrado_por)
+                VALUES (:advisor_id, :fecha, :status, :notas, :registrado_por)
+                ON CONFLICT (advisor_id, fecha)
+                DO UPDATE SET status = EXCLUDED.status,
+                              notas = EXCLUDED.notas,
+                              registrado_por = EXCLUDED.registrado_por
+            ");
+
+            foreach ($records as $rec) {
+                $advisorId = (int)($rec['advisor_id'] ?? 0);
+                $fecha = (string)($rec['fecha'] ?? '');
+                $status = (string)($rec['status'] ?? 'presente');
+                $notas = trim((string)($rec['notas'] ?? ''));
+
+                if ($advisorId <= 0 || $fecha === '') continue;
+                if (!in_array($status, $validStatuses, true)) $status = 'presente';
+
+                // Validar que la fecha no sea futura (no puedes confirmar el futuro)
+                if ($fecha > date('Y-m-d')) continue;
+
+                $stmtUpsert->execute([
+                    ':advisor_id' => $advisorId,
+                    ':fecha' => $fecha,
+                    ':status' => $status,
+                    ':notas' => $notas ?: null,
+                    ':registrado_por' => $user['id'],
+                ]);
+                $saved++;
+            }
+
+            $pdo->commit();
+            echo json_encode(['success' => true, 'saved' => $saved]);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('Error guardando asistencia: ' . $e->getMessage());
+            echo json_encode(['success' => false, 'error' => 'Error al guardar']);
+        }
+
+        exit;
+    }
+
+    /**
+     * API: Toggle check-in de un asesor para un dia.
+     */
+    public function toggleCheckin(int $scheduleId): void
+    {
+        AuthService::requireAnyPermission(['schedules.view', 'schedules.view_own']);
+
+        header('Content-Type: application/json');
+
+        $pdo = Database::getConnection();
+
+        $stmt = $pdo->prepare("SELECT id FROM schedules WHERE id = :id AND status = 'aprobado'");
+        $stmt->execute([':id' => $scheduleId]);
+        if (!$stmt->fetch()) {
+            echo json_encode(['success' => false, 'error' => 'Horario no encontrado o no aprobado']);
+            exit;
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true);
+        $advisorId = (int)($input['advisor_id'] ?? 0);
+        $fecha = (string)($input['fecha'] ?? '');
+
+        if ($advisorId <= 0 || $fecha === '') {
+            echo json_encode(['success' => false, 'error' => 'Datos invalidos']);
+            exit;
+        }
+
+        // No permitir check-in en fechas futuras
+        if ($fecha > date('Y-m-d')) {
+            echo json_encode(['success' => false, 'error' => 'No se puede hacer check-in en fechas futuras']);
+            exit;
+        }
+
+        try {
+            // Toggle: si existe eliminar, si no existe insertar
+            $stmt = $pdo->prepare("SELECT id FROM advisor_checkins WHERE advisor_id = :aid AND schedule_id = :sid AND fecha = :fecha");
+            $stmt->execute([':aid' => $advisorId, ':sid' => $scheduleId, ':fecha' => $fecha]);
+            $existing = $stmt->fetch();
+
+            if ($existing) {
+                $stmt = $pdo->prepare("DELETE FROM advisor_checkins WHERE id = :id");
+                $stmt->execute([':id' => $existing['id']]);
+                echo json_encode(['success' => true, 'checked' => false]);
+            } else {
+                $stmt = $pdo->prepare("
+                    INSERT INTO advisor_checkins (advisor_id, schedule_id, fecha)
+                    VALUES (:aid, :sid, :fecha)
+                ");
+                $stmt->execute([':aid' => $advisorId, ':sid' => $scheduleId, ':fecha' => $fecha]);
+                echo json_encode(['success' => true, 'checked' => true, 'time' => date('H:i')]);
+            }
+        } catch (Throwable $e) {
+            error_log('Error en check-in: ' . $e->getMessage());
+            echo json_encode(['success' => false, 'error' => 'Error al registrar check-in']);
+        }
+
+        exit;
+    }
+
     private function canManageAllCampaigns(array $user): bool
     {
-        return in_array($user['rol'] ?? '', ['admin', 'coordinador'], true);
+        return in_array($user['rol'] ?? '', ['admin', 'gerente', 'coordinador'], true);
     }
 
     private function syncMonthlyScheduleHeader(

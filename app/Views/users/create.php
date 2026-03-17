@@ -20,10 +20,11 @@ ob_start();
     <div class="page-header">
         <div class="header-content">
             <div class="header-info">
-                <a href="<?= BASE_URL ?>/users" class="back-link">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-                    Volver
-                </a>
+                <div class="form-breadcrumb" style="margin-bottom:8px;">
+                    <a href="<?= BASE_URL ?>/users" style="color:#2563eb;text-decoration:none;font-weight:500;">Usuarios</a>
+                    <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:#94a3b8;"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                    <span>Nuevo</span>
+                </div>
                 <h1 class="header-title">Nuevo Usuario</h1>
                 <p class="header-subtitle">Completa los datos del nuevo usuario</p>
             </div>
@@ -36,6 +37,7 @@ ob_start();
             <h2>Datos del Usuario</h2>
         </div>
         <form action="<?= BASE_URL ?>/users" method="POST" class="card-body">
+            <?= \App\Services\CsrfService::field() ?>
             <div class="form-row">
                 <div class="form-group">
                     <label for="nombre">Nombre *</label>

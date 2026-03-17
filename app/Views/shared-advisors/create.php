@@ -19,6 +19,7 @@ ob_start();
     </div>
 
     <form action="<?= BASE_URL ?>/campaigns/<?= $campaign['id'] ?>/shared-advisors" method="POST">
+        <?= \App\Services\CsrfService::field() ?>
         <div class="data-panel" style="margin-bottom: 24px;">
             <div class="panel-header">
                 <div class="panel-title">

@@ -73,6 +73,7 @@ ob_start();
                         </td>
                         <td>
                             <form method="POST" action="<?= BASE_URL ?>/shared-advisors/<?= $row['id'] ?>/toggle" style="display: inline;">
+                                <?= \App\Services\CsrfService::field() ?>
                                 <button type="submit" class="btn btn-sm <?= $row['estado'] === 'activo' ? 'btn-secondary' : 'btn-primary' ?>" title="<?= $row['estado'] === 'activo' ? 'Desactivar' : 'Activar' ?>">
                                     <?= $row['estado'] === 'activo' ? 'Desactivar' : 'Activar' ?>
                                 </button>

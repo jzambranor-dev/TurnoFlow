@@ -10,8 +10,10 @@ $currentPage = 'schedules';
 $viewMode = strtolower((string)($_GET['view'] ?? 'monthly'));
 $viewMode = in_array($viewMode, ['daily', 'advisor', 'edit']) ? $viewMode : 'monthly';
 
-// Solo permitir edicion si el horario no esta aprobado
-$canEdit = in_array($schedule['status'], ['borrador', 'rechazado'], true);
+// Edicion libre en borrador/rechazado, edicion restringida (hoy+futuro) en aprobado
+$canEditFull = in_array($schedule['status'], ['borrador', 'rechazado'], true);
+$canEditApproved = $schedule['status'] === 'aprobado';
+$canEdit = $canEditFull || $canEditApproved;
 
 /**
  * Convierte array de horas [9,10,11,14,15,16] en bloques "09:00-12:00, 14:00-17:00"
@@ -190,7 +192,10 @@ foreach ($advisorIds as $advisorId) {
     }
 }
 
-$selectedDate = (string)($_GET['date'] ?? ($dates[0] ?? ''));
+// Si no se especifica fecha, usar hoy si esta dentro del rango, sino el primer dia
+$todayStr = date('Y-m-d');
+$defaultDate = in_array($todayStr, $dates, true) ? $todayStr : ($dates[0] ?? '');
+$selectedDate = (string)($_GET['date'] ?? $defaultDate);
 if ($selectedDate === '' || !in_array($selectedDate, $dates, true)) {
     $selectedDate = $dates[0] ?? '';
 }
@@ -216,6 +221,53 @@ foreach ($hours as $hour) {
 $totalFreeSlots = array_sum($advisorFreeDays);
 $totalAdvisors = count($advisorIds);
 $totalAssignments = count($assignments);
+
+// --- Calculo de cobertura global del dimensionamiento ---
+$totalRequiredAll = 0;
+$totalCoverageAll = 0;
+$deficitHoursCount = 0;   // franjas con deficit
+$surplusHoursCount = 0;   // franjas con superavit
+$perfectHoursCount = 0;   // franjas perfectas
+$totalDeficitSum = 0;     // suma total de asesor-hora faltantes
+$totalSurplusSum = 0;     // suma total de asesor-hora sobrantes
+$deficitByDate = [];       // deficit por dia para detalle
+
+foreach ($dates as $date) {
+    $dayDeficit = 0;
+    $dayRequired = 0;
+    $dayCoverage = 0;
+    foreach ($hours as $hour) {
+        $req = (int)($requirementsByDateHour[$date][$hour] ?? 0);
+        $cov = (int)($coverageByDateHour[$date][$hour] ?? 0);
+        $totalRequiredAll += $req;
+        $totalCoverageAll += $cov;
+        $gap = $cov - $req;
+        if ($gap < 0) {
+            $deficitHoursCount++;
+            $totalDeficitSum += abs($gap);
+            $dayDeficit += abs($gap);
+        } elseif ($gap > 0) {
+            $surplusHoursCount++;
+            $totalSurplusSum += $gap;
+        } else {
+            $perfectHoursCount++;
+        }
+        $dayRequired += $req;
+        $dayCoverage += $cov;
+    }
+    $deficitByDate[$date] = [
+        'required' => $dayRequired,
+        'coverage' => $dayCoverage,
+        'deficit' => max(0, $dayRequired - $dayCoverage),
+    ];
+}
+$coveragePercent = $totalRequiredAll > 0 ? round(($totalCoverageAll / $totalRequiredAll) * 100, 1) : 100;
+$isFullyCovered = $totalDeficitSum === 0;
+$totalHourSlots = count($dates) * 24;
+$daysWithDeficit = 0;
+foreach ($deficitByDate as $dd) {
+    if ($dd['deficit'] > 0) $daysWithDeficit++;
+}
 
 $selectedDateLabel = '';
 if ($selectedDate !== '') {
@@ -269,15 +321,44 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
 
     <div class="detail-header">
         <div class="header-row">
-            <a href="<?= BASE_URL ?>/schedules" class="btn-outline-link">Volver</a>
+            <div class="form-breadcrumb">
+                <a href="<?= BASE_URL ?>/schedules" style="color:#2563eb;text-decoration:none;font-weight:500;">Horarios</a>
+                <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:#94a3b8;"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                <span><?= htmlspecialchars((string)$schedule['campaign_nombre']) ?></span>
+            </div>
             <div class="header-actions">
                 <?php if ($schedule['status'] === 'borrador'): ?>
-                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/submit" class="btn-solid btn-send">Enviar a aprobacion</a>
+                <form method="POST" action="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/submit" style="display:inline;">
+                    <?= \App\Services\CsrfService::field() ?>
+                    <button type="submit" class="btn-solid btn-send">
+                        <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                        Enviar a aprobacion
+                    </button>
+                </form>
                 <?php endif; ?>
 
-                <?php if (in_array($_SESSION['user']['rol'] ?? '', ['coordinador', 'admin'], true) && $schedule['status'] === 'enviado'): ?>
-                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/approve" class="btn-solid btn-ok">Aprobar</a>
-                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/reject" class="btn-solid btn-bad">Rechazar</a>
+                <?php if (in_array($_SESSION['user']['rol'] ?? '', ['coordinador', 'admin', 'gerente'], true) && $schedule['status'] === 'enviado'): ?>
+                <form method="POST" action="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/approve" style="display:inline;">
+                    <?= \App\Services\CsrfService::field() ?>
+                    <button type="submit" class="btn-solid btn-ok">
+                        <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                        Aprobar
+                    </button>
+                </form>
+                <form method="POST" action="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/reject" style="display:inline;">
+                    <?= \App\Services\CsrfService::field() ?>
+                    <button type="submit" class="btn-solid btn-bad" onclick="return confirm('Rechazar este horario?')">
+                        <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                        Rechazar
+                    </button>
+                </form>
+                <?php endif; ?>
+
+                <?php if ($schedule['status'] === 'aprobado'): ?>
+                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/tracking" class="btn-solid btn-tracking">
+                    <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                    Seguimiento Diario
+                </a>
                 <?php endif; ?>
             </div>
         </div>
@@ -285,12 +366,15 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
         <div class="title-row">
             <div>
                 <span class="status-pill" style="background: <?= $statusInfo['bg'] ?>; color: <?= $statusInfo['color'] ?>;">
+                    <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:<?= $statusInfo['color'] ?>;margin-right:4px;"></span>
                     <?= htmlspecialchars($statusInfo['label']) ?>
                 </span>
                 <h1><?= htmlspecialchars((string)$schedule['campaign_nombre']) ?></h1>
                 <p>
+                    <svg viewBox="0 0 24 24" fill="currentColor" style="width:15px;height:15px;vertical-align:-3px;fill:#94a3b8;margin-right:3px;"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
                     Periodo <?= str_pad((string)$schedule['periodo_mes'], 2, '0', STR_PAD_LEFT) ?>/<?= htmlspecialchars((string)$schedule['periodo_anio']) ?>
-                    | <?= htmlspecialchars((string)$schedule['fecha_inicio']) ?> al <?= htmlspecialchars((string)$schedule['fecha_fin']) ?>
+                    &nbsp;|&nbsp; <?= htmlspecialchars((string)$schedule['fecha_inicio']) ?> al <?= htmlspecialchars((string)$schedule['fecha_fin']) ?>
+                    <span style="color:#94a3b8;margin-left:4px;">(<?= count($dates) ?> dias)</span>
                 </p>
             </div>
         </div>
@@ -298,27 +382,142 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
 
     <div class="stats-grid">
         <div class="stat-box">
-            <span class="stat-title">Asesores</span>
-            <span class="stat-value"><?= $totalAdvisors ?></span>
+            <div class="stat-icon-box" style="background:#eff6ff;">
+                <svg viewBox="0 0 24 24" style="fill:#2563eb;width:20px;height:20px;"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+            </div>
+            <div>
+                <span class="stat-value"><?= $totalAdvisors ?></span>
+                <span class="stat-title">Asesores</span>
+            </div>
         </div>
         <div class="stat-box">
-            <span class="stat-title">Asignaciónes</span>
-            <span class="stat-value"><?= $totalAssignments ?></span>
+            <div class="stat-icon-box" style="background:#dcfce7;">
+                <svg viewBox="0 0 24 24" style="fill:#16a34a;width:20px;height:20px;"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/></svg>
+            </div>
+            <div>
+                <span class="stat-value"><?= number_format($totalAssignments) ?></span>
+                <span class="stat-title">Asignaciones</span>
+            </div>
         </div>
         <div class="stat-box">
-            <span class="stat-title">Dias libres (acumulado)</span>
-            <span class="stat-value"><?= $totalFreeSlots ?></span>
+            <div class="stat-icon-box" style="background:#fef3c7;">
+                <svg viewBox="0 0 24 24" style="fill:#d97706;width:20px;height:20px;"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+            </div>
+            <div>
+                <span class="stat-value"><?= $totalFreeSlots ?></span>
+                <span class="stat-title">Dias libres</span>
+            </div>
         </div>
         <div class="stat-box">
-            <span class="stat-title">Estado</span>
-            <span class="stat-value"><?= htmlspecialchars($statusInfo['label']) ?></span>
+            <div class="stat-icon-box" style="background:<?= $statusInfo['bg'] ?>;">
+                <svg viewBox="0 0 24 24" style="fill:<?= $statusInfo['color'] ?>;width:20px;height:20px;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            </div>
+            <div>
+                <span class="stat-value"><?= htmlspecialchars($statusInfo['label']) ?></span>
+                <span class="stat-title">Estado</span>
+            </div>
         </div>
     </div>
 
+    <!-- Panel de Cobertura del Dimensionamiento -->
+    <div class="coverage-panel <?= $isFullyCovered ? 'coverage-complete' : 'coverage-deficit' ?>">
+        <div class="coverage-header">
+            <div class="coverage-header-left">
+                <?php if ($isFullyCovered): ?>
+                <div class="coverage-icon coverage-icon-ok">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                </div>
+                <div>
+                    <h3 class="coverage-title">Dimensionamiento Completo</h3>
+                    <p class="coverage-subtitle">Todas las franjas horarias estan cubiertas segun el requerimiento</p>
+                </div>
+                <?php else: ?>
+                <div class="coverage-icon coverage-icon-warn">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+                </div>
+                <div>
+                    <h3 class="coverage-title">Dimensionamiento Incompleto</h3>
+                    <p class="coverage-subtitle">Faltan <strong><?= number_format($totalDeficitSum) ?></strong> asesor-hora por cubrir en <strong><?= $deficitHoursCount ?></strong> franjas (<?= $daysWithDeficit ?> dias)</p>
+                </div>
+                <?php endif; ?>
+            </div>
+            <div class="coverage-percent-badge <?= $isFullyCovered ? 'percent-ok' : ($coveragePercent >= 90 ? 'percent-warn' : 'percent-bad') ?>">
+                <?= $coveragePercent ?>%
+            </div>
+        </div>
+
+        <div class="coverage-metrics">
+            <div class="coverage-metric">
+                <span class="metric-label">Requerido</span>
+                <span class="metric-value"><?= number_format($totalRequiredAll) ?></span>
+                <span class="metric-unit">asesor-hora</span>
+            </div>
+            <div class="coverage-metric">
+                <span class="metric-label">Asignado</span>
+                <span class="metric-value"><?= number_format($totalCoverageAll) ?></span>
+                <span class="metric-unit">asesor-hora</span>
+            </div>
+            <div class="coverage-metric">
+                <span class="metric-label">Diferencia</span>
+                <span class="metric-value <?= $totalCoverageAll - $totalRequiredAll < 0 ? 'metric-neg' : 'metric-pos' ?>"><?= ($totalCoverageAll - $totalRequiredAll >= 0 ? '+' : '') . number_format($totalCoverageAll - $totalRequiredAll) ?></span>
+                <span class="metric-unit">asesor-hora</span>
+            </div>
+            <div class="coverage-metric">
+                <span class="metric-label">Franjas OK</span>
+                <span class="metric-value"><?= $perfectHoursCount + $surplusHoursCount ?></span>
+                <span class="metric-unit">de <?= $totalHourSlots ?></span>
+            </div>
+        </div>
+
+        <?php if (!$isFullyCovered): ?>
+        <div class="coverage-progress-wrap">
+            <div class="coverage-progress-bar">
+                <div class="coverage-progress-fill" style="width: <?= min($coveragePercent, 100) ?>%;"></div>
+            </div>
+            <span class="coverage-progress-label"><?= $coveragePercent ?>% cubierto</span>
+        </div>
+
+        <?php if ($daysWithDeficit <= 15): ?>
+        <details class="coverage-details">
+            <summary>Ver detalle por dia (<?= $daysWithDeficit ?> dias con deficit)</summary>
+            <div class="coverage-detail-grid">
+                <?php foreach ($deficitByDate as $date => $dd): ?>
+                <?php if ($dd['deficit'] > 0): ?>
+                <?php
+                    $stamp = strtotime($date);
+                    $dayPct = $dd['required'] > 0 ? round(($dd['coverage'] / $dd['required']) * 100) : 100;
+                ?>
+                <div class="coverage-detail-row">
+                    <span class="detail-date"><?= $weekDaysShort[(int)date('w', $stamp)] ?> <?= date('d/m', $stamp) ?></span>
+                    <div class="detail-bar-wrap">
+                        <div class="detail-bar">
+                            <div class="detail-bar-fill" style="width:<?= min($dayPct, 100) ?>%;"></div>
+                        </div>
+                    </div>
+                    <span class="detail-nums"><?= $dd['coverage'] ?>/<?= $dd['required'] ?></span>
+                    <span class="detail-deficit">-<?= $dd['deficit'] ?></span>
+                </div>
+                <?php endif; ?>
+                <?php endforeach; ?>
+            </div>
+        </details>
+        <?php endif; ?>
+        <?php endif; ?>
+    </div>
+
     <div class="mode-switch">
-        <a href="<?= $monthlyLink ?>" class="switch-link <?= $viewMode === 'monthly' ? 'active' : '' ?>">Resumen Mensual</a>
-        <a href="<?= $advisorLink ?>" class="switch-link <?= $viewMode === 'advisor' ? 'active' : '' ?>">Horario por Asesor</a>
-        <a href="<?= $dailyLink ?>" class="switch-link <?= $viewMode === 'daily' ? 'active' : '' ?>">Matriz Diaria</a>
+        <a href="<?= $monthlyLink ?>" class="switch-link <?= $viewMode === 'monthly' ? 'active' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width:15px;height:15px;"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
+            Resumen Mensual
+        </a>
+        <a href="<?= $advisorLink ?>" class="switch-link <?= $viewMode === 'advisor' ? 'active' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width:15px;height:15px;"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+            Horario por Asesor
+        </a>
+        <a href="<?= $dailyLink ?>" class="switch-link <?= $viewMode === 'daily' ? 'active' : '' ?>">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width:15px;height:15px;"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+            Matriz Diaria
+        </a>
         <?php if ($canEdit): ?>
         <a href="<?= $editLink ?>" class="switch-link switch-edit <?= $viewMode === 'edit' ? 'active' : '' ?>">
             <svg viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px;margin-right:4px;"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
@@ -407,7 +606,14 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
     <div class="panel">
         <div class="panel-head panel-head-daily">
             <h2>Editar Horario - <?= htmlspecialchars($selectedDateLabel) ?></h2>
-            <span class="legend-note">Click en celda para asignar/quitar</span>
+            <?php if ($canEditApproved && $selectedDate < date('Y-m-d')): ?>
+            <span class="legend-note" style="color:#dc2626;font-weight:600;">
+                <svg viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px;fill:#dc2626;vertical-align:-2px;"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+                Dia pasado — solo lectura
+            </span>
+            <?php else: ?>
+            <span class="legend-note">Arrastra para asignar/quitar</span>
+            <?php endif; ?>
         </div>
 
         <div class="daily-toolbar">
@@ -432,14 +638,46 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
             </form>
         </div>
 
-        <div class="edit-legend">
-            <span class="legend-item"><span class="cell-preview assigned"></span> Asignado</span>
-            <span class="legend-item"><span class="cell-preview available"></span> Disponible</span>
-            <span class="legend-item"><span class="cell-preview blocked"></span> No disponible</span>
+        <div class="edit-toolbar">
+            <div class="edit-mode-selector">
+                <span class="edit-mode-label">Modo:</span>
+                <button type="button" class="mode-btn mode-btn-active" id="modeNormal" onclick="setEditMode('normal')">
+                    <span class="mode-dot" style="background:#22c55e;"></span> Hora
+                </button>
+                <button type="button" class="mode-btn" id="modeBreak" onclick="setEditMode('break')">
+                    <span class="mode-dot" style="background:#f59e0b;"></span> Break
+                </button>
+                <?php foreach ($campaignActivities as $act): ?>
+                <button type="button" class="mode-btn" id="modeActivity<?= $act['id'] ?>" onclick="setEditMode('activity_<?= $act['id'] ?>')">
+                    <span class="mode-dot" style="background:<?= htmlspecialchars($act['color']) ?>;"></span> <?= htmlspecialchars($act['nombre']) ?>
+                </button>
+                <?php endforeach; ?>
+                <button type="button" class="mode-btn" id="modeRemove" onclick="setEditMode('remove')">
+                    <span class="mode-dot" style="background:#ef4444;"></span> Eliminar
+                </button>
+            </div>
+            <div class="edit-legend">
+                <span class="legend-item"><span class="cell-preview assigned"></span> Hora</span>
+                <span class="legend-item"><span class="cell-preview is-break-preview"></span> Break</span>
+                <?php foreach ($campaignActivities as $act): ?>
+                <span class="legend-item"><span class="cell-preview" style="background:<?= htmlspecialchars($act['color']) ?>20;border:1px solid <?= htmlspecialchars($act['color']) ?>;"></span> <?= htmlspecialchars($act['nombre']) ?></span>
+                <?php endforeach; ?>
+                <span class="legend-item"><span class="cell-preview available"></span> Vacio</span>
+            </div>
         </div>
+        <div class="edit-hint">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width:15px;height:15px;fill:#94a3b8;flex-shrink:0;"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+            <span>Manten presionado el clic y arrastra para pintar varias celdas. Selecciona el modo antes de pintar.</span>
+        </div>
+        <?php if ($canEditApproved): ?>
+        <div class="edit-hint" style="background:#fefce8;border-bottom:1px solid #fde68a;">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width:15px;height:15px;fill:#d97706;flex-shrink:0;"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+            <span>Horario aprobado — solo puedes modificar el dia de <strong>hoy (<?= date('d/m/Y') ?>)</strong> y dias futuros. Los dias pasados estan bloqueados.</span>
+        </div>
+        <?php endif; ?>
 
         <div class="table-wrap">
-            <table class="edit-table" id="editTable" data-schedule="<?= $schedule['id'] ?>" data-date="<?= htmlspecialchars($selectedDate) ?>">
+            <table class="edit-table" id="editTable" data-schedule="<?= $schedule['id'] ?>" data-date="<?= htmlspecialchars($selectedDate) ?>" data-approved="<?= $canEditApproved ? '1' : '0' ?>" data-today="<?= date('Y-m-d') ?>">
                 <thead>
                     <tr>
                         <th class="sticky-col">Asesor</th>
@@ -476,14 +714,21 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
                             $cellType = $assignmentTypeByDateAdvisorHour[$selectedDate][$advisorId][$hour] ?? 'normal';
                             $isBreak = $isAssigned && $cellType === 'break';
                             $crossCampName = $crossCampaignHoursMap[$advisorId][$selectedDate][$hour] ?? '';
+                            $editActivity = $isAssigned ? getActivityForHour($advisorId, $hour, $selectedDate, $advisorActivities) : null;
                         ?>
-                        <td class="edit-cell <?= $isAssigned ? ($isBreak ? 'assigned is-break' : 'assigned') : 'available' ?>"
+                        <td class="edit-cell <?= $isAssigned ? ($isBreak ? 'assigned is-break' : 'assigned') : 'available' ?> <?= $editActivity ? 'has-activity' : '' ?>"
                             data-advisor="<?= $advisorId ?>"
                             data-hour="<?= $hour ?>"
                             data-assigned="<?= $isAssigned ? '1' : '0' ?>"
-                            <?= $crossCampName ? 'title="Prestado a ' . htmlspecialchars($crossCampName) . '"' : '' ?>
-                            <?= $crossCampName ? 'style="background:#ede9fe !important;border-bottom:2px solid #7c3aed;"' : '' ?>
-                            onclick="toggleAssignment(this)"><?= $isBreak ? '<span class="break-label">0.5</span>' : ($crossCampName ? '<span style="color:#7c3aed;font-size:0.65em;">P</span>' : '') ?></td>
+                            data-type="<?= $isBreak ? 'break' : ($isAssigned ? 'normal' : '') ?>"
+                            <?php if ($editActivity): ?>
+                            data-activity="<?= htmlspecialchars($editActivity['nombre']) ?>"
+                            style="background:<?= htmlspecialchars($editActivity['color']) ?>20 !important;border-bottom:2px solid <?= htmlspecialchars($editActivity['color']) ?>;"
+                            title="<?= htmlspecialchars($editActivity['nombre']) ?>"
+                            <?php elseif ($crossCampName): ?>
+                            title="Prestado a <?= htmlspecialchars($crossCampName) ?>"
+                            style="background:#ede9fe !important;border-bottom:2px solid #7c3aed;"
+                            <?php endif; ?>><?php if ($isBreak): ?><span class="break-label">B</span><?php elseif ($editActivity): ?><span style="color:<?= htmlspecialchars($editActivity['color']) ?>;font-size:0.6em;font-weight:700;"><?= htmlspecialchars(mb_substr($editActivity['nombre'], 0, 3)) ?></span><?php elseif ($crossCampName): ?><span style="color:#7c3aed;font-size:0.65em;">P</span><?php endif; ?></td>
                         <?php endforeach; ?>
                     </tr>
                     <?php endforeach; ?>
@@ -704,53 +949,335 @@ $content = ob_get_clean();
 
 $extraStyles = [];
 $extraScripts = [];
+
+// Build activities JSON for JS
+$activitiesMap = [];
+foreach ($campaignActivities as $act) {
+    $activitiesMap[$act['id']] = [
+        'id' => (int)$act['id'],
+        'nombre' => $act['nombre'],
+        'color' => $act['color'] ?? '#2563eb',
+    ];
+}
+$activitiesJson = json_encode((object)$activitiesMap);
+
+// Build cross-campaign hours JSON for conflict detection
+$crossHoursJs = [];
+foreach ($crossCampaignHoursMap as $advId => $dateMap) {
+    foreach ($dateMap as $fecha => $hourMap) {
+        foreach ($hourMap as $hora => $campNombre) {
+            $crossHoursJs[(int)$advId][$fecha][(int)$hora] = $campNombre;
+        }
+    }
+}
+$crossHoursJson = json_encode((object)$crossHoursJs);
+$sharedIdsJson = json_encode(array_values($sharedAdvisorIdsList));
+$csrfToken = \App\Services\CsrfService::token();
+
 $extraScripts[] = <<<SCRIPT
 <script>
 const BASE_URL = '{$_ENV['APP_URL']}' || '/system-horario/TurnoFlow/public';
+const CSRF_TOKEN = '{$csrfToken}';
 const pendingChanges = [];
 let changesCounter = 0;
 
-function toggleAssignment(cell) {
-    if (cell.classList.contains('blocked')) {
-        return;
+// --- Activities Map ---
+const ACTIVITIES = {$activitiesJson};
+
+// --- Shared advisors & cross-campaign conflict data ---
+const SHARED_ADVISORS = new Set({$sharedIdsJson});
+const CROSS_HOURS = {$crossHoursJson};
+
+// --- Edit Mode ---
+let editMode = 'normal'; // 'normal', 'break', 'remove', 'activity_N'
+
+function setEditMode(mode) {
+    editMode = mode;
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('mode-btn-active'));
+    let btnId;
+    if (mode === 'normal') btnId = 'modeNormal';
+    else if (mode === 'break') btnId = 'modeBreak';
+    else if (mode === 'remove') btnId = 'modeRemove';
+    else if (mode.startsWith('activity_')) btnId = 'modeActivity' + mode.split('_')[1];
+    const btn = document.getElementById(btnId);
+    if (btn) btn.classList.add('mode-btn-active');
+}
+
+// --- Toast / Snackbar System ---
+function showToast(message, type, duration) {
+    type = type || 'info';
+    duration = duration || 3500;
+    let container = document.getElementById('toastContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toastContainer';
+        container.className = 'tf-toast-container';
+        document.body.appendChild(container);
     }
+    const icons = {
+        success: '<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>',
+        error: '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>',
+        warning: '<path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>',
+        info: '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>'
+    };
+    const toast = document.createElement('div');
+    toast.className = 'tf-toast tf-toast-' + type;
+    toast.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor">' + (icons[type] || icons.info) + '</svg><span>' + message + '</span><button class="tf-toast-close" onclick="this.parentElement.remove()">&times;</button>';
+    container.appendChild(toast);
+    requestAnimationFrame(function() { toast.classList.add('tf-toast-show'); });
+    setTimeout(function() {
+        toast.classList.remove('tf-toast-show');
+        toast.classList.add('tf-toast-hide');
+        setTimeout(function() { toast.remove(); }, 300);
+    }, duration);
+}
+
+// --- Loading Overlay ---
+function showLoading(msg) {
+    msg = msg || 'Guardando...';
+    let overlay = document.getElementById('loadingOverlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'loadingOverlay';
+        overlay.className = 'tf-loading-overlay';
+        document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = '<div class="tf-loading-box"><div class="tf-loading-spinner"></div><div class="tf-loading-text">' + msg + '</div></div>';
+    overlay.style.display = 'flex';
+}
+function hideLoading() {
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+// --- Conflict Detection ---
+function checkConflict(advisorId, hour) {
+    const table = document.getElementById('editTable');
+    if (!table) return null;
+    const editDate = table.dataset.date;
+    const advKey = String(advisorId);
+    if (CROSS_HOURS[advKey] && CROSS_HOURS[advKey][editDate] && CROSS_HOURS[advKey][editDate][String(hour)]) {
+        return CROSS_HOURS[advKey][editDate][String(hour)];
+    }
+    return null;
+}
+
+// --- Drag Painting ---
+let isDragging = false;
+let dragAction = null; // 'add', 'add-break', 'remove'
+let paintedCells = new Set();
+
+function getCellKey(cell) {
+    return cell.dataset.advisor + ':' + cell.dataset.hour;
+}
+
+function applyToCell(cell) {
+    if (!cell || !cell.classList.contains('edit-cell') || cell.classList.contains('blocked')) return;
+
+    // Block editing past dates on approved schedules
+    const table = document.getElementById('editTable');
+    if (table && table.dataset.approved === '1') {
+        const editDate = table.dataset.date;
+        const today = table.dataset.today;
+        if (editDate < today) return;
+    }
+
+    const key = getCellKey(cell);
+    if (paintedCells.has(key)) return;
+    paintedCells.add(key);
 
     const advisorId = parseInt(cell.dataset.advisor, 10);
     const hour = parseInt(cell.dataset.hour, 10);
     const isAssigned = cell.dataset.assigned === '1';
+    const currentType = cell.dataset.type || '';
 
-    // Toggle visual state
-    if (isAssigned) {
-        cell.classList.remove('assigned', 'pending-add');
-        cell.classList.add('available', 'pending-remove');
-        cell.dataset.assigned = '0';
-        addChange('remove', advisorId, hour);
-    } else {
-        cell.classList.remove('available', 'pending-remove');
-        cell.classList.add('assigned', 'pending-add');
-        cell.dataset.assigned = '1';
-        addChange('add', advisorId, hour);
+    // Conflict detection: block assigning if advisor has hours in another campaign
+    if (editMode !== 'remove' && !isAssigned) {
+        const conflictCamp = checkConflict(advisorId, hour);
+        if (conflictCamp) {
+            showToast('Conflicto: este asesor ya esta asignado a las ' + String(hour).padStart(2,'0') + ':00 en <b>' + conflictCamp + '</b>', 'error', 4500);
+            return;
+        }
     }
 
-    // Update coverage counter for that hour
-    updateCoverage(hour, isAssigned ? -1 : 1);
-}
+    if (editMode === 'remove') {
+        // Only remove if currently assigned
+        if (isAssigned) {
+            cell.classList.remove('assigned', 'is-break', 'pending-add');
+            cell.classList.add('available', 'pending-remove');
+            cell.dataset.assigned = '0';
+            cell.dataset.type = '';
+            cell.innerHTML = '';
+            addChange('remove', advisorId, hour);
+            updateCoverage(hour, -1);
+        }
+    } else if (editMode === 'break') {
+        if (isAssigned && currentType === 'break') return; // already break
+        if (!isAssigned) {
+            // Add as break
+            cell.classList.remove('available', 'pending-remove');
+            cell.classList.add('assigned', 'is-break', 'pending-add');
+            cell.dataset.assigned = '1';
+            cell.dataset.type = 'break';
+            cell.innerHTML = '<span class="break-label">B</span>';
+            addChange('add', advisorId, hour, 'break');
+            updateCoverage(hour, 1);
+        } else {
+            // Convert normal -> break (remove then add as break)
+            addChange('remove', advisorId, hour);
+            addChange('add', advisorId, hour, 'break');
+            cell.classList.add('is-break', 'pending-add');
+            cell.dataset.type = 'break';
+            cell.innerHTML = '<span class="break-label">B</span>';
+        }
+    } else if (editMode.startsWith('activity_')) {
+        // Activity mode — assign hour + mark with activity
+        const actId = editMode.split('_')[1];
+        const act = ACTIVITIES[actId];
+        if (!act) return;
 
-function addChange(action, advisorId, hour) {
-    // Check if there's an opposite change that cancels this one
-    const existingIndex = pendingChanges.findIndex(
-        c => c.advisor_id === advisorId && c.hour === hour
-    );
-
-    if (existingIndex !== -1) {
-        const existing = pendingChanges[existingIndex];
-        if (existing.action !== action) {
-            // Cancel out
-            pendingChanges.splice(existingIndex, 1);
-            changesCounter--;
+        if (!isAssigned) {
+            cell.classList.remove('available', 'pending-remove');
+            cell.classList.add('assigned', 'has-activity', 'pending-add');
+            cell.dataset.assigned = '1';
+            cell.dataset.type = 'normal';
+            cell.dataset.activity = act.nombre;
+            cell.style.background = act.color + '20';
+            cell.style.borderBottom = '2px solid ' + act.color;
+            cell.innerHTML = '<span style="color:' + act.color + ';font-size:0.6em;font-weight:700;">' + act.nombre.substring(0, 3) + '</span>';
+            addChange('add', advisorId, hour, 'normal', parseInt(actId));
+            updateCoverage(hour, 1);
+        } else {
+            // Convert existing to activity
+            if (currentType === 'break') {
+                addChange('remove', advisorId, hour);
+            }
+            cell.classList.remove('is-break');
+            cell.classList.add('has-activity', 'pending-add');
+            cell.dataset.type = 'normal';
+            cell.dataset.activity = act.nombre;
+            cell.style.background = act.color + '20';
+            cell.style.borderBottom = '2px solid ' + act.color;
+            cell.innerHTML = '<span style="color:' + act.color + ';font-size:0.6em;font-weight:700;">' + act.nombre.substring(0, 3) + '</span>';
+            addChange('add', advisorId, hour, 'normal', parseInt(actId));
         }
     } else {
-        pendingChanges.push({ action, advisor_id: advisorId, hour });
+        // Normal mode
+        if (isAssigned && currentType !== 'break' && !cell.classList.contains('has-activity')) return; // already normal
+        if (!isAssigned) {
+            // Add as normal
+            cell.classList.remove('available', 'pending-remove');
+            cell.classList.add('assigned', 'pending-add');
+            cell.dataset.assigned = '1';
+            cell.dataset.type = 'normal';
+            cell.innerHTML = '';
+            addChange('add', advisorId, hour, 'normal');
+            updateCoverage(hour, 1);
+        } else {
+            // Convert break/activity -> normal
+            if (currentType === 'break') {
+                addChange('remove', advisorId, hour);
+                addChange('add', advisorId, hour, 'normal');
+            } else if (cell.classList.contains('has-activity')) {
+                addChange('add', advisorId, hour, 'normal');
+            }
+            cell.classList.remove('is-break', 'has-activity');
+            cell.classList.add('pending-add');
+            cell.dataset.type = 'normal';
+            delete cell.dataset.activity;
+            cell.style.background = '';
+            cell.style.borderBottom = '';
+            cell.innerHTML = '';
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const table = document.getElementById('editTable');
+    if (!table) return;
+
+    // Prevent text selection while dragging
+    table.addEventListener('selectstart', function(e) {
+        if (isDragging) e.preventDefault();
+    });
+
+    table.addEventListener('mousedown', function(e) {
+        const cell = e.target.closest('.edit-cell');
+        if (!cell) return;
+        e.preventDefault();
+        isDragging = true;
+        paintedCells = new Set();
+        applyToCell(cell);
+    });
+
+    table.addEventListener('mouseover', function(e) {
+        if (!isDragging) return;
+        const cell = e.target.closest('.edit-cell');
+        if (cell) applyToCell(cell);
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (isDragging) {
+            isDragging = false;
+            paintedCells = new Set();
+        }
+    });
+
+    // Touch support for mobile
+    table.addEventListener('touchstart', function(e) {
+        const cell = e.target.closest('.edit-cell');
+        if (!cell) return;
+        e.preventDefault();
+        isDragging = true;
+        paintedCells = new Set();
+        applyToCell(cell);
+    }, { passive: false });
+
+    table.addEventListener('touchmove', function(e) {
+        if (!isDragging) return;
+        e.preventDefault();
+        const touch = e.touches[0];
+        const el = document.elementFromPoint(touch.clientX, touch.clientY);
+        const cell = el ? el.closest('.edit-cell') : null;
+        if (cell) applyToCell(cell);
+    }, { passive: false });
+
+    document.addEventListener('touchend', function() {
+        if (isDragging) {
+            isDragging = false;
+            paintedCells = new Set();
+        }
+    });
+
+    // Keyboard shortcuts for modes
+    document.addEventListener('keydown', function(e) {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+        if (e.key === '1') setEditMode('normal');
+        if (e.key === '2') setEditMode('break');
+        if (e.key === '3') setEditMode('remove');
+    });
+});
+
+function addChange(action, advisorId, hour, tipo, activityId) {
+    // Remove any existing change for same advisor+hour
+    const existingIndex = pendingChanges.findIndex(
+        c => c.advisor_id === advisorId && c.hour === hour && c.action === (action === 'add' ? 'add' : 'remove')
+    );
+
+    // Check for opposite that cancels
+    const oppositeIndex = pendingChanges.findIndex(
+        c => c.advisor_id === advisorId && c.hour === hour && c.action !== action
+    );
+
+    if (oppositeIndex !== -1 && !tipo) {
+        pendingChanges.splice(oppositeIndex, 1);
+        changesCounter--;
+    } else if (existingIndex !== -1) {
+        // Update existing
+        pendingChanges[existingIndex].tipo = tipo || 'normal';
+        pendingChanges[existingIndex].activity_id = activityId || null;
+    } else {
+        pendingChanges.push({ action, advisor_id: advisorId, hour, tipo: tipo || 'normal', activity_id: activityId || null });
         changesCounter++;
     }
 
@@ -779,7 +1306,7 @@ function updateChangesCounter() {
 
 async function saveChanges() {
     if (pendingChanges.length === 0) {
-        alert('No hay cambios para guardar.');
+        showToast('No hay cambios para guardar.', 'info');
         return;
     }
 
@@ -788,15 +1315,15 @@ async function saveChanges() {
     const date = table.dataset.date;
 
     const btn = document.querySelector('.edit-actions .btn-send');
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<span class="spinner"></span> Guardando...';
     btn.disabled = true;
+    showLoading('Guardando ' + pendingChanges.length + ' cambio(s)...');
 
     try {
         const response = await fetch(BASE_URL + '/schedules/' + scheduleId + '/assignments', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': CSRF_TOKEN,
             },
             body: JSON.stringify({
                 date: date,
@@ -807,26 +1334,26 @@ async function saveChanges() {
         const result = await response.json();
 
         if (result.success) {
-            // Clear pending changes
             pendingChanges.length = 0;
             changesCounter = 0;
             updateChangesCounter();
 
-            // Remove pending classes
             document.querySelectorAll('.pending-add, .pending-remove').forEach(cell => {
                 cell.classList.remove('pending-add', 'pending-remove');
             });
 
-            // Show success
-            alert('Cambios guardados correctamente: ' + result.added + ' agregados, ' + result.removed + ' eliminados.');
+            let msg = result.added + ' agregados, ' + result.removed + ' eliminados';
+            if (result.breaks > 0) msg += ', ' + result.breaks + ' breaks';
+            if (result.activities > 0) msg += ', ' + result.activities + ' actividades';
+            showToast(msg, 'success', 4000);
         } else {
-            alert('Error al guardar: ' + (result.error || 'Error desconocido'));
+            showToast(result.error || 'Error desconocido al guardar', 'error', 5000);
         }
     } catch (error) {
         console.error('Error:', error);
-        alert('Error de conexion al guardar los cambios.');
+        showToast('Error de conexion al guardar los cambios.', 'error', 5000);
     } finally {
-        btn.innerHTML = originalText;
+        hideLoading();
         btn.disabled = false;
     }
 }
@@ -840,19 +1367,61 @@ window.addEventListener('beforeunload', function(e) {
 });
 </script>
 <style>
-.spinner {
-    display: inline-block;
-    width: 14px;
-    height: 14px;
-    border: 2px solid rgba(255,255,255,0.3);
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    margin-right: 6px;
+/* Toast System */
+.tf-toast-container {
+    position: fixed; top: 20px; right: 20px; z-index: 10000;
+    display: flex; flex-direction: column; gap: 10px;
+    pointer-events: none; max-width: 420px;
 }
-@keyframes spin {
-    to { transform: rotate(360deg); }
+.tf-toast {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px; border-radius: 12px;
+    background: #fff; border: 1px solid #e2e8f0;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+    font-size: 0.85rem; font-weight: 500; color: #334155;
+    pointer-events: auto; opacity: 0;
+    transform: translateX(40px);
+    transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
 }
+.tf-toast-show { opacity: 1; transform: translateX(0); }
+.tf-toast-hide { opacity: 0; transform: translateX(40px); }
+.tf-toast svg { width: 20px; height: 20px; flex-shrink: 0; }
+.tf-toast span { flex: 1; line-height: 1.4; }
+.tf-toast-close {
+    background: none; border: none; font-size: 18px; color: #94a3b8;
+    cursor: pointer; padding: 0 0 0 8px; line-height: 1;
+}
+.tf-toast-close:hover { color: #475569; }
+.tf-toast-success { border-left: 4px solid #16a34a; }
+.tf-toast-success svg { fill: #16a34a; }
+.tf-toast-error { border-left: 4px solid #dc2626; }
+.tf-toast-error svg { fill: #dc2626; }
+.tf-toast-warning { border-left: 4px solid #d97706; }
+.tf-toast-warning svg { fill: #d97706; }
+.tf-toast-info { border-left: 4px solid #2563eb; }
+.tf-toast-info svg { fill: #2563eb; }
+
+/* Loading Overlay */
+.tf-loading-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 9999; background: rgba(15,23,42,0.35);
+    backdrop-filter: blur(2px);
+    display: none; align-items: center; justify-content: center;
+}
+.tf-loading-box {
+    background: #fff; border-radius: 16px;
+    padding: 32px 48px; text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+}
+.tf-loading-spinner {
+    width: 40px; height: 40px; margin: 0 auto 16px;
+    border: 3px solid #e2e8f0; border-top-color: #2563eb;
+    border-radius: 50%; animation: tf-spin 0.8s linear infinite;
+}
+.tf-loading-text {
+    font-size: 0.9rem; font-weight: 600; color: #475569;
+}
+@keyframes tf-spin { to { transform: rotate(360deg); } }
 </style>
 SCRIPT;
 
@@ -932,6 +1501,14 @@ $extraStyles[] = <<<'STYLE'
         margin-bottom: 2px;
     }
 
+    .form-breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.85rem;
+        color: #94a3b8;
+    }
+
     .detail-header {
         margin-bottom: 16px;
     }
@@ -956,12 +1533,14 @@ $extraStyles[] = <<<'STYLE'
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        gap: 6px;
         border-radius: 8px;
-        padding: 8px 12px;
+        padding: 8px 14px;
         font-size: 12px;
         font-weight: 600;
         text-decoration: none;
         border: 1px solid #cbd5e1;
+        transition: all 0.15s ease;
     }
 
     .btn-outline-link {
@@ -1007,6 +1586,14 @@ $extraStyles[] = <<<'STYLE'
         background: #991b1b;
     }
 
+    .btn-tracking {
+        background: #7c3aed;
+    }
+
+    .btn-tracking:hover {
+        background: #6d28d9;
+    }
+
     .title-row h1 {
         margin: 6px 0 2px;
         font-size: 24px;
@@ -1020,12 +1607,24 @@ $extraStyles[] = <<<'STYLE'
     }
 
     .status-pill {
-        display: inline-block;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
         border-radius: 999px;
-        padding: 5px 10px;
+        padding: 5px 12px;
         font-size: 11px;
         font-weight: 700;
         text-transform: uppercase;
+    }
+
+    .stat-icon-box {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
     }
 
     .stats-grid {
@@ -1039,7 +1638,15 @@ $extraStyles[] = <<<'STYLE'
         background: #fff;
         border: 1px solid #e2e8f0;
         border-radius: 10px;
-        padding: 12px;
+        padding: 14px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        transition: box-shadow 0.15s ease;
+    }
+
+    .stat-box:hover {
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     }
 
     .stat-title {
@@ -1053,33 +1660,279 @@ $extraStyles[] = <<<'STYLE'
     .stat-value {
         display: block;
         color: #0f172a;
-        font-size: 20px;
+        font-size: 1.25rem;
         font-weight: 700;
-        margin-top: 2px;
+        line-height: 1.2;
     }
 
     .mode-switch {
         display: flex;
-        gap: 8px;
+        gap: 6px;
         margin-bottom: 14px;
         flex-wrap: wrap;
+        background: #f8fafc;
+        padding: 4px;
+        border-radius: 999px;
+        border: 1px solid #e2e8f0;
+        width: fit-content;
     }
 
     .switch-link {
         border-radius: 999px;
-        padding: 7px 12px;
-        border: 1px solid #cbd5e1;
-        background: #fff;
-        color: #334155;
+        padding: 7px 14px;
+        border: none;
+        background: transparent;
+        color: #64748b;
         text-decoration: none;
         font-size: 12px;
         font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        transition: all 0.15s ease;
+    }
+
+    .switch-link:hover {
+        color: #334155;
+        background: #fff;
     }
 
     .switch-link.active {
-        border-color: #2563eb;
         background: #2563eb;
         color: #fff;
+        box-shadow: 0 1px 3px rgba(37,99,235,0.3);
+    }
+
+    /* Coverage Panel */
+    .coverage-panel {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 14px;
+    }
+
+    .coverage-panel.coverage-complete {
+        border-color: #86efac;
+        background: linear-gradient(135deg, #f0fdf4 0%, #fff 60%);
+    }
+
+    .coverage-panel.coverage-deficit {
+        border-color: #fed7aa;
+        background: linear-gradient(135deg, #fffbeb 0%, #fff 60%);
+    }
+
+    .coverage-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+
+    .coverage-header-left {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+
+    .coverage-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .coverage-icon svg { width: 24px; height: 24px; }
+
+    .coverage-icon-ok {
+        background: #dcfce7;
+        color: #16a34a;
+    }
+    .coverage-icon-ok svg { fill: #16a34a; }
+
+    .coverage-icon-warn {
+        background: #fef3c7;
+        color: #d97706;
+    }
+    .coverage-icon-warn svg { fill: #d97706; }
+
+    .coverage-title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    .coverage-subtitle {
+        margin: 2px 0 0;
+        font-size: 12px;
+        color: #64748b;
+    }
+
+    .coverage-subtitle strong {
+        color: #0f172a;
+    }
+
+    .coverage-percent-badge {
+        font-size: 1.4rem;
+        font-weight: 800;
+        padding: 8px 16px;
+        border-radius: 10px;
+        flex-shrink: 0;
+    }
+
+    .percent-ok { background: #dcfce7; color: #15803d; }
+    .percent-warn { background: #fef3c7; color: #b45309; }
+    .percent-bad { background: #fee2e2; color: #b91c1c; }
+
+    .coverage-metrics {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+
+    .coverage-metric {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 10px 12px;
+        text-align: center;
+    }
+
+    .coverage-metric .metric-label {
+        display: block;
+        font-size: 10px;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin-bottom: 2px;
+    }
+
+    .coverage-metric .metric-value {
+        display: block;
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    .coverage-metric .metric-value.metric-neg { color: #dc2626; }
+    .coverage-metric .metric-value.metric-pos { color: #16a34a; }
+
+    .coverage-metric .metric-unit {
+        display: block;
+        font-size: 10px;
+        color: #94a3b8;
+    }
+
+    .coverage-progress-wrap {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .coverage-progress-bar {
+        flex: 1;
+        height: 8px;
+        background: #e2e8f0;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .coverage-progress-fill {
+        height: 100%;
+        border-radius: 8px;
+        background: linear-gradient(90deg, #f59e0b, #eab308);
+        transition: width 0.6s ease;
+    }
+
+    .coverage-complete .coverage-progress-fill {
+        background: linear-gradient(90deg, #16a34a, #22c55e);
+    }
+
+    .coverage-progress-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: #64748b;
+        flex-shrink: 0;
+    }
+
+    .coverage-details {
+        margin-top: 4px;
+    }
+
+    .coverage-details summary {
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        color: #64748b;
+        padding: 6px 0;
+    }
+
+    .coverage-details summary:hover { color: #334155; }
+
+    .coverage-detail-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 10px;
+        max-height: 250px;
+        overflow-y: auto;
+    }
+
+    .coverage-detail-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 5px 8px;
+        border-radius: 6px;
+        background: #fff;
+        border: 1px solid #f1f5f9;
+    }
+
+    .coverage-detail-row .detail-date {
+        font-size: 12px;
+        font-weight: 600;
+        color: #334155;
+        min-width: 65px;
+    }
+
+    .coverage-detail-row .detail-bar-wrap {
+        flex: 1;
+    }
+
+    .coverage-detail-row .detail-bar {
+        height: 6px;
+        background: #f1f5f9;
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .coverage-detail-row .detail-bar-fill {
+        height: 100%;
+        border-radius: 6px;
+        background: #f59e0b;
+    }
+
+    .coverage-detail-row .detail-nums {
+        font-size: 11px;
+        color: #64748b;
+        min-width: 55px;
+        text-align: right;
+    }
+
+    .coverage-detail-row .detail-deficit {
+        font-size: 11px;
+        font-weight: 700;
+        color: #dc2626;
+        min-width: 30px;
+        text-align: right;
     }
 
     .panel {
@@ -1485,12 +2338,84 @@ $extraStyles[] = <<<'STYLE'
         color: #fff;
     }
 
-    .edit-legend {
+    .edit-toolbar {
         display: flex;
+        align-items: center;
+        justify-content: space-between;
         gap: 16px;
         padding: 12px 14px;
-        background: #f8fafc;
         border-bottom: 1px solid #e2e8f0;
+        background: #f8fafc;
+        flex-wrap: wrap;
+    }
+
+    .edit-mode-selector {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .edit-mode-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: #64748b;
+        margin-right: 4px;
+    }
+
+    .mode-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border-radius: 999px;
+        border: 1px solid #e2e8f0;
+        background: #fff;
+        font-size: 12px;
+        font-weight: 600;
+        color: #475569;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        user-select: none;
+    }
+
+    .mode-btn:hover {
+        border-color: #cbd5e1;
+        background: #f1f5f9;
+    }
+
+    .mode-btn.mode-btn-active {
+        border-color: #2563eb;
+        background: #eff6ff;
+        color: #1d4ed8;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+    }
+
+    .mode-dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+    }
+
+    .edit-hint {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        font-size: 12px;
+        color: #94a3b8;
+        background: #fafbfc;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .is-break-preview {
+        background: #fef3c7 !important;
+        border-color: #f59e0b !important;
+    }
+
+    .edit-legend {
+        display: flex;
+        gap: 12px;
         flex-wrap: wrap;
     }
 
@@ -1602,6 +2527,8 @@ $extraStyles[] = <<<'STYLE'
     .edit-cell {
         width: 32px;
         height: 32px;
+        user-select: none;
+        -webkit-user-select: none;
         cursor: pointer;
         transition: all 0.15s ease;
         position: relative;
@@ -1690,11 +2617,36 @@ $extraStyles[] = <<<'STYLE'
         .stats-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
+
+        .coverage-metrics {
+            grid-template-columns: repeat(2, 1fr);
+        }
     }
 
     @media (max-width: 700px) {
         .stats-grid {
             grid-template-columns: 1fr;
+        }
+
+        .coverage-metrics {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .coverage-header {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .mode-switch {
+            width: 100%;
+            border-radius: 12px;
+        }
+
+        .switch-link {
+            flex: 1;
+            justify-content: center;
+            font-size: 11px;
+            padding: 7px 8px;
         }
 
         .daily-table .sticky-col,

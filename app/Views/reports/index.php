@@ -15,6 +15,25 @@ ob_start();
             <h1 class="page-header-title">Reportes</h1>
             <p class="page-header-subtitle">Selecciona una campaña para ver el reporte de horas</p>
         </div>
+        <?php if ($isAdmin): ?>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <select id="unifiedPeriod" class="form-select" style="padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.85rem;">
+                <?php
+                $pdo2 = Database::getConnection();
+                $stmtP = $pdo2->query("SELECT DISTINCT periodo_anio, periodo_mes FROM schedules ORDER BY periodo_anio DESC, periodo_mes DESC");
+                $periods = $stmtP->fetchAll();
+                $monthNamesP = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                foreach ($periods as $p):
+                ?>
+                <option value="<?= $p['periodo_anio'] ?>-<?= $p['periodo_mes'] ?>"><?= $monthNamesP[(int)$p['periodo_mes']] ?> <?= $p['periodo_anio'] ?></option>
+                <?php endforeach; ?>
+            </select>
+            <a href="#" id="btnExportUnified" class="btn btn-success" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; white-space: nowrap;">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                Exportar Unificado
+            </a>
+        </div>
+        <?php endif; ?>
     </div>
 
     <div class="data-panel">
@@ -119,6 +138,25 @@ $extraStyles[] = <<<'STYLE'
     }
 </style>
 STYLE;
+
+$appUrl = BASE_URL;
+$extraScripts = [];
+$extraScripts[] = "<script>const BASE_URL_REPORTS = '{$appUrl}';</script>";
+$extraScripts[] = <<<'SCRIPT'
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var btn = document.getElementById('btnExportUnified');
+    var sel = document.getElementById('unifiedPeriod');
+    if (btn && sel) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            var parts = sel.value.split('-');
+            window.location.href = BASE_URL_REPORTS + '/reports/export-unified?year=' + parts[0] + '&month=' + parts[1];
+        });
+    }
+});
+</script>
+SCRIPT;
 
 include APP_PATH . '/Views/layouts/main.php';
 ?>

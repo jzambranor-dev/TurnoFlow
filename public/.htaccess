@@ -1,6 +1,10 @@
 RewriteEngine On
 RewriteBase /system-horario/TurnoFlow/public/
 
+# Pasar el header Authorization a PHP (Apache lo elimina por defecto)
+RewriteCond %{HTTP:Authorization} .+
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
 # Redirigir todo al index.php excepto archivos existentes
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d

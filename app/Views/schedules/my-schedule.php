@@ -1,373 +1,1082 @@
 <?php
-$pageTitle = 'Mi Horario';
-$currentPage = 'my-schedule';
+/**
+ * TurnoFlow - Mi Horario
+ * Vista personal del asesor con su horario mensual aprobado
+ */
 
-// Organizar asignaciónes por fecha
+$monthNames = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+               'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+$dayNamesShort = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
+$dayNamesLong  = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'];
+
+$userName = htmlspecialchars(($_SESSION['user']['nombre'] ?? '') . ' ' . ($_SESSION['user']['apellido'] ?? ''));
+$userEmail = htmlspecialchars($_SESSION['user']['email'] ?? '');
+
+// Greeting
+$hora = (int)date('H');
+if ($hora < 12) $saludo = 'Buenos dias';
+elseif ($hora < 19) $saludo = 'Buenas tardes';
+else $saludo = 'Buenas noches';
+
+// Schedule period
+if ($currentSchedule) {
+    $scheduleMonth = (int)$currentSchedule['periodo_mes'];
+    $scheduleYear = (int)$currentSchedule['periodo_anio'];
+    $campaignName = htmlspecialchars($currentSchedule['campaign_nombre'] ?? 'Sin campana');
+} else {
+    $scheduleMonth = (int)date('n');
+    $scheduleYear = (int)date('Y');
+    $campaignName = $advisor ? htmlspecialchars($currentSchedule['campaign_nombre'] ?? 'Sin campana') : '';
+}
+
+// Organize assignments by date with type support
 $assignmentsByDate = [];
 $totalHours = 0;
-$totalDays = 0;
+$totalBreakHours = 0;
+$workDays = 0;
+$extraHours = 0;
 
 if (!empty($assignments)) {
     foreach ($assignments as $a) {
         $key = $a['fecha'];
         if (!isset($assignmentsByDate[$key])) {
-            $assignmentsByDate[$key] = [];
-            $totalDays++;
+            $assignmentsByDate[$key] = ['hours' => [], 'types' => []];
+            $workDays++;
         }
-        $assignmentsByDate[$key][] = $a['hora'];
-        $totalHours++;
+        $assignmentsByDate[$key]['hours'][] = (int)$a['hora'];
+        $assignmentsByDate[$key]['types'][(int)$a['hora']] = $a['tipo'] ?? 'normal';
+
+        if (($a['tipo'] ?? 'normal') === 'break') {
+            $totalBreakHours += 0.5;
+        } else {
+            $totalHours++;
+        }
+        if (!empty($a['es_extra'])) {
+            $extraHours++;
+        }
     }
 }
 
-// Calcular horas por semana
-$weeklyHours = [];
-foreach ($assignmentsByDate as $date => $hours) {
-    $weekNum = date('W', strtotime($date));
-    if (!isset($weeklyHours[$weekNum])) {
-        $weeklyHours[$weekNum] = 0;
-    }
-    $weeklyHours[$weekNum] += count($hours);
+$effectiveHours = $totalHours + $totalBreakHours;
+$avgHoursPerDay = $workDays > 0 ? round($effectiveHours / $workDays, 1) : 0;
+
+// Days in month for rest day calculation
+$daysInMonth = (int)date('t', mktime(0, 0, 0, $scheduleMonth, 1, $scheduleYear));
+$restDays = $daysInMonth - $workDays;
+
+// Today's shift
+$today = date('Y-m-d');
+$todayShift = $assignmentsByDate[$today] ?? null;
+$todayHours = [];
+$todayTypes = [];
+if ($todayShift) {
+    $todayHours = $todayShift['hours'];
+    $todayTypes = $todayShift['types'];
+    sort($todayHours);
 }
 
-$currentMonth = date('n');
-$currentYear = date('Y');
-$monthNames = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-               'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+// Current week (Mon-Sun)
+$weekStart = date('Y-m-d', strtotime('monday this week'));
+$weekDays = [];
+for ($i = 0; $i < 7; $i++) {
+    $d = date('Y-m-d', strtotime($weekStart . " +{$i} days"));
+    $weekDays[] = $d;
+}
+
+/**
+ * Convert hour array to block ranges like "09:00-13:00, 14:00-18:00"
+ */
+function myScheduleHoursToBlocks(array $hours, array $types = []): string {
+    if (empty($hours)) return '';
+    sort($hours);
+    $blocks = [];
+    $start = $hours[0];
+    $prev = $hours[0];
+
+    for ($i = 1; $i < count($hours); $i++) {
+        if ($hours[$i] !== $prev + 1) {
+            $blocks[] = sprintf('%02d:00-%02d:00', $start, $prev + 1);
+            $start = $hours[$i];
+        }
+        $prev = $hours[$i];
+    }
+    $blocks[] = sprintf('%02d:00-%02d:00', $start, $prev + 1);
+    return implode(', ', $blocks);
+}
+
+$extraStyles = [];
+$extraStyles[] = <<<'STYLE'
+<style>
+    /* My Schedule Page Styles */
+    .ms-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 28px;
+        padding-bottom: 24px;
+        border-bottom: 1px solid var(--corp-gray-200);
+    }
+    .ms-header h1 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--corp-gray-900);
+        margin: 0 0 6px 0;
+        letter-spacing: -0.025em;
+    }
+    .ms-header p {
+        color: var(--corp-gray-500);
+        margin: 0;
+        font-size: 0.95rem;
+    }
+    .ms-campaign-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        background: #eff6ff;
+        color: #2563eb;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-top: 8px;
+    }
+    .ms-campaign-badge svg { width: 14px; height: 14px; fill: #2563eb; }
+    .ms-period-box {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        background: var(--corp-gray-50);
+        border: 1px solid var(--corp-gray-200);
+        padding: 12px 20px;
+        border-radius: 10px;
+        flex-shrink: 0;
+    }
+    .ms-period-month {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--corp-gray-900);
+    }
+    .ms-period-year {
+        font-size: 0.8rem;
+        color: var(--corp-gray-500);
+    }
+    .ms-period-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        margin-top: 4px;
+    }
+
+    /* Error/Empty States */
+    .ms-alert {
+        background: #fff;
+        border: 1px solid var(--corp-gray-200);
+        border-radius: var(--card-radius);
+        padding: 32px;
+        display: flex;
+        align-items: flex-start;
+        gap: 20px;
+        margin-bottom: 24px;
+    }
+    .ms-alert-icon {
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .ms-alert-icon svg { width: 24px; height: 24px; }
+    .ms-alert-icon.warning { background: #fef3c7; }
+    .ms-alert-icon.warning svg { fill: #d97706; }
+    .ms-alert-icon.info { background: #dbeafe; }
+    .ms-alert-icon.info svg { fill: #2563eb; }
+    .ms-alert-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--corp-gray-900);
+        margin-bottom: 4px;
+    }
+    .ms-alert-desc {
+        font-size: 0.9rem;
+        color: var(--corp-gray-500);
+        line-height: 1.6;
+    }
+
+    /* Stats grid */
+    .ms-stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .ms-stat {
+        background: #fff;
+        border: 1px solid var(--corp-gray-200);
+        border-radius: var(--card-radius);
+        padding: 20px;
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        transition: all 0.2s ease;
+    }
+    .ms-stat:hover {
+        border-color: var(--corp-gray-300);
+        box-shadow: var(--card-shadow-hover);
+    }
+    .ms-stat-icon {
+        width: 44px;
+        height: 44px;
+        min-width: 44px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .ms-stat-icon svg { width: 22px; height: 22px; }
+    .ms-stat-icon.blue { background: #eff6ff; }
+    .ms-stat-icon.blue svg { fill: #2563eb; }
+    .ms-stat-icon.green { background: #dcfce7; }
+    .ms-stat-icon.green svg { fill: #16a34a; }
+    .ms-stat-icon.amber { background: #fef3c7; }
+    .ms-stat-icon.amber svg { fill: #d97706; }
+    .ms-stat-icon.slate { background: #f1f5f9; }
+    .ms-stat-icon.slate svg { fill: #475569; }
+    .ms-stat-label {
+        font-size: 0.72rem;
+        font-weight: 500;
+        color: var(--corp-gray-500);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 4px;
+    }
+    .ms-stat-value {
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: var(--corp-gray-900);
+        line-height: 1;
+    }
+
+    /* Today card */
+    .ms-today {
+        background: #fff;
+        border: 1px solid var(--corp-gray-200);
+        border-radius: var(--card-radius);
+        padding: 24px;
+        margin-bottom: 24px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        position: relative;
+        overflow: hidden;
+    }
+    .ms-today::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+    }
+    .ms-today.working::before { background: #2563eb; }
+    .ms-today.resting::before { background: #16a34a; }
+    .ms-today-icon {
+        width: 56px;
+        height: 56px;
+        min-width: 56px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .ms-today-icon svg { width: 28px; height: 28px; }
+    .ms-today-icon.working { background: #eff6ff; }
+    .ms-today-icon.working svg { fill: #2563eb; }
+    .ms-today-icon.resting { background: #dcfce7; }
+    .ms-today-icon.resting svg { fill: #16a34a; }
+    .ms-today-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 4px;
+    }
+    .ms-today-label.working { color: #2563eb; }
+    .ms-today-label.resting { color: #16a34a; }
+    .ms-today-main {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--corp-gray-900);
+    }
+    .ms-today-sub {
+        font-size: 0.85rem;
+        color: var(--corp-gray-500);
+        margin-top: 2px;
+    }
+
+    /* Weekly timeline */
+    .ms-week {
+        background: #fff;
+        border: 1px solid var(--corp-gray-200);
+        border-radius: var(--card-radius);
+        padding: 24px;
+        margin-bottom: 24px;
+    }
+    .ms-week-title {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: var(--corp-gray-900);
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .ms-week-title svg { width: 18px; height: 18px; fill: var(--corp-gray-400); }
+    .ms-week-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 8px;
+    }
+    .ms-week-day {
+        border-radius: 10px;
+        padding: 12px 8px;
+        text-align: center;
+        border: 1px solid var(--corp-gray-200);
+        transition: all 0.15s ease;
+    }
+    .ms-week-day.has-work {
+        background: #eff6ff;
+        border-color: #bfdbfe;
+    }
+    .ms-week-day.is-rest {
+        background: var(--corp-gray-50);
+        border-color: var(--corp-gray-200);
+    }
+    .ms-week-day.is-today {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+    }
+    .ms-week-day.is-today.has-work {
+        background: #dbeafe;
+    }
+    .ms-week-day-name {
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--corp-gray-500);
+        margin-bottom: 4px;
+    }
+    .ms-week-day-num {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--corp-gray-800);
+        margin-bottom: 6px;
+    }
+    .ms-week-day.is-today .ms-week-day-num { color: #2563eb; }
+    .ms-week-day-hours {
+        font-size: 0.72rem;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 10px;
+        display: inline-block;
+    }
+    .ms-week-day.has-work .ms-week-day-hours {
+        background: #2563eb;
+        color: #fff;
+    }
+    .ms-week-day.is-rest .ms-week-day-hours {
+        background: var(--corp-gray-200);
+        color: var(--corp-gray-600);
+    }
+    .ms-week-day-range {
+        font-size: 0.65rem;
+        color: var(--corp-gray-500);
+        margin-top: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Calendar */
+    .ms-calendar {
+        background: #fff;
+        border: 1px solid var(--corp-gray-200);
+        border-radius: var(--card-radius);
+        margin-bottom: 24px;
+        overflow: hidden;
+    }
+    .ms-calendar-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--corp-gray-200);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .ms-calendar-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--corp-gray-900);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .ms-calendar-title svg { width: 18px; height: 18px; fill: var(--corp-gray-400); }
+    .ms-calendar-legend {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+    }
+    .ms-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.75rem;
+        color: var(--corp-gray-500);
+    }
+    .ms-legend-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+    .ms-calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+    }
+    .ms-cal-head {
+        padding: 10px 4px;
+        text-align: center;
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--corp-gray-500);
+        background: var(--corp-gray-50);
+        border-bottom: 1px solid var(--corp-gray-200);
+    }
+    .ms-cal-day {
+        padding: 10px 6px;
+        min-height: 80px;
+        border-bottom: 1px solid var(--corp-gray-100);
+        border-right: 1px solid var(--corp-gray-100);
+        position: relative;
+        transition: background 0.15s;
+    }
+    .ms-cal-day:nth-child(7n) { border-right: none; }
+    .ms-cal-day:hover { background: var(--corp-gray-50); }
+    .ms-cal-day.empty {
+        background: var(--corp-gray-50);
+        min-height: 40px;
+    }
+    .ms-cal-day.today {
+        background: #eff6ff;
+    }
+    .ms-cal-day-num {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--corp-gray-700);
+        margin-bottom: 4px;
+    }
+    .ms-cal-day.today .ms-cal-day-num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        background: #2563eb;
+        color: #fff;
+        border-radius: 50%;
+        font-size: 0.72rem;
+    }
+    .ms-cal-day-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .ms-cal-hours-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.68rem;
+        font-weight: 600;
+    }
+    .ms-cal-hours-badge.work {
+        background: #dbeafe;
+        color: #1d4ed8;
+    }
+    .ms-cal-hours-badge.rest {
+        color: var(--corp-gray-400);
+        font-weight: 500;
+    }
+    .ms-cal-hours-badge.extra {
+        background: #fef3c7;
+        color: #92400e;
+    }
+    .ms-cal-time {
+        font-size: 0.62rem;
+        color: var(--corp-gray-400);
+        margin-top: 2px;
+    }
+    .ms-cal-dot {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+    }
+    .ms-cal-dot.work { background: #2563eb; }
+    .ms-cal-dot.nocturno { background: #475569; }
+    .ms-cal-dot.extra { background: #d97706; }
+
+    /* Detail Table */
+    .ms-detail {
+        background: #fff;
+        border: 1px solid var(--corp-gray-200);
+        border-radius: var(--card-radius);
+        overflow: hidden;
+    }
+    .ms-detail-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--corp-gray-200);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .ms-detail-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--corp-gray-900);
+    }
+    .ms-detail-title svg { width: 18px; height: 18px; fill: var(--corp-gray-400); }
+    .ms-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .ms-table th {
+        padding: 10px 16px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--corp-gray-500);
+        background: var(--corp-gray-50);
+        border-bottom: 1px solid var(--corp-gray-200);
+        text-align: left;
+    }
+    .ms-table td {
+        padding: 12px 16px;
+        font-size: 0.85rem;
+        color: var(--corp-gray-700);
+        border-bottom: 1px solid var(--corp-gray-100);
+    }
+    .ms-table tr:last-child td { border-bottom: none; }
+    .ms-table tbody tr:nth-child(even) {
+        background: var(--corp-gray-50);
+    }
+    .ms-table tbody tr:hover {
+        background: #f8fafc;
+    }
+    .ms-table tbody tr.row-today {
+        background: #eff6ff;
+    }
+    .ms-table tbody tr.row-today:hover {
+        background: #dbeafe;
+    }
+    .ms-table .cell-date {
+        font-weight: 600;
+        color: var(--corp-gray-900);
+    }
+    .ms-table .cell-today-tag {
+        display: inline-block;
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: #2563eb;
+        margin-left: 6px;
+        padding: 1px 6px;
+        background: #dbeafe;
+        border-radius: 4px;
+    }
+    .ms-table .cell-hours {
+        font-weight: 700;
+        color: var(--corp-primary);
+    }
+    .ms-type-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 0.72rem;
+        font-weight: 600;
+    }
+    .ms-type-badge.normal { background: #dcfce7; color: #15803d; }
+    .ms-type-badge.nocturno { background: #f1f5f9; color: #334155; }
+    .ms-type-badge.extra { background: #fef3c7; color: #92400e; }
+    .ms-type-badge svg { width: 12px; height: 12px; fill: currentColor; }
+
+    /* Check-in */
+    .ms-checkin-area {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+    }
+    .ms-checkin-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        border-radius: 10px;
+        border: 2px solid #2563eb;
+        background: #fff;
+        color: #2563eb;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .ms-checkin-btn:hover {
+        background: #eff6ff;
+    }
+    .ms-checkin-btn svg { width: 18px; height: 18px; }
+    .ms-checkin-btn.checked {
+        background: #16a34a;
+        border-color: #16a34a;
+        color: #fff;
+    }
+    .ms-checkin-btn.checked:hover {
+        background: #15803d;
+        border-color: #15803d;
+    }
+    .ms-checkin-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    .ms-checkin-time {
+        font-size: 0.72rem;
+        color: var(--corp-gray-500);
+        text-align: center;
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+        .ms-stats { grid-template-columns: repeat(2, 1fr); }
+        .ms-week-grid { grid-template-columns: repeat(4, 1fr); }
+    }
+    @media (max-width: 768px) {
+        .ms-header { flex-direction: column; gap: 16px; }
+        .ms-stats { grid-template-columns: 1fr; }
+        .ms-week-grid { grid-template-columns: repeat(3, 1fr); }
+        .ms-today { flex-direction: column; text-align: center; padding-left: 16px; }
+        .ms-today::before { width: 100%; height: 4px; bottom: auto; }
+        .ms-calendar-header { flex-direction: column; gap: 12px; align-items: flex-start; }
+        .ms-cal-day { min-height: 60px; padding: 6px 4px; }
+    }
+    @media (max-width: 480px) {
+        .ms-week-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+</style>
+STYLE;
 
 ob_start();
 ?>
 
-<!-- Header con info del usuario -->
-<div class="card card-custom gutter-b">
-    <div class="card-body">
-        <div class="d-flex align-items-center">
-            <div class="symbol symbol-60 symbol-xxl-100 mr-5 align-self-start align-self-xxl-center">
-                <div class="symbol-label" style="background-image:url('<?= BASE_URL ?>/../dist/assets/media/svg/avatars/001-boy.svg')"></div>
-            </div>
+<!-- Breadcrumb -->
+<div class="form-breadcrumb" style="margin-bottom: 12px;">
+    <a href="<?= BASE_URL ?>/dashboard">Inicio</a>
+    <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+    <span>Mi Horario</span>
+</div>
+
+<!-- Header -->
+<div class="ms-header">
+    <div>
+        <h1><?= $saludo ?>, <?= $userName ?></h1>
+        <p>Consulta tu horario y turnos asignados para este periodo.</p>
+        <?php if ($advisor && $campaignName): ?>
+        <div class="ms-campaign-badge">
+            <svg viewBox="0 0 24 24"><path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg>
+            <?= $campaignName ?>
+        </div>
+        <?php endif; ?>
+    </div>
+    <div style="text-align: right;">
+        <div class="ms-period-box">
             <div>
-                <h3 class="font-weight-bolder font-size-h4 text-dark-75 mb-1">
-                    <?= htmlspecialchars($_SESSION['user']['nombre'] . ' ' . $_SESSION['user']['apellido']) ?>
-                </h3>
-                <div class="text-muted font-weight-bold">
-                    <?php if ($advisor): ?>
-                        <span class="label label-lg label-light-primary label-inline mr-2">
-                            <?= htmlspecialchars($advisor['campaign_id'] ? ($currentSchedule['campaign_nombre'] ?? 'Sin campaña') : 'Sin campaña') ?>
-                        </span>
-                    <?php endif; ?>
-                    <span class="text-dark-50">Asesor de Call Center</span>
-                </div>
+                <div class="ms-period-month"><?= $monthNames[$scheduleMonth] ?> <?= $scheduleYear ?></div>
+                <div class="ms-period-year"><?= date('d/m/Y') ?></div>
             </div>
         </div>
+        <?php if ($currentSchedule): ?>
+        <div style="margin-top: 8px;">
+            <span class="ms-period-status" style="background: #dcfce7; color: #15803d;">
+                <svg viewBox="0 0 24 24" style="width:12px;height:12px;fill:currentColor;"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                Aprobado
+            </span>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 
 <?php if (!$advisor): ?>
-<!-- Mensaje cuando no hay advisor asociado -->
-<div class="card card-custom gutter-b">
-    <div class="card-body">
-        <div class="d-flex align-items-center bg-light-warning rounded p-5">
-            <span class="svg-icon svg-icon-warning svg-icon-3x mr-5">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
-                    <path opacity="0.3" d="M12 22C13.6569 22 15 20.6569 15 19C15 17.3431 13.6569 16 12 16C10.3431 16 9 17.3431 9 19C9 20.6569 10.3431 22 12 22Z" fill="currentColor"/>
-                    <path d="M19 15V18C19 18.6 18.6 19 18 19H6C5.4 19 5 18.6 5 18V15C6.1 15 7 14.1 7 13V10C7 7.6 8.7 5.6 11 5.1V3C11 2.4 11.4 2 12 2C12.6 2 13 2.4 13 3V5.1C15.3 5.6 17 7.6 17 10V13C17 14.1 17.9 15 19 15ZM11 10C11 9.4 11.4 9 12 9C12.6 9 13 8.6 13 8C13 7.4 12.6 7 12 7C10.3 7 9 8.3 9 10C9 10.6 9.4 11 10 11C10.6 11 11 10.6 11 10Z" fill="currentColor"/>
-                </svg>
-            </span>
-            <div class="d-flex flex-column flex-grow-1 mr-2">
-                <span class="font-weight-bold text-dark-75 font-size-lg mb-1">
-                    No hay horario asignado
-                </span>
-                <span class="text-muted font-weight-bold">
-                    Tu cuenta de usuario aun no esta vinculada a un registro de asesor en el sistema.
-                    Contacta al coordinador para que te asigne a una campaña.
-                </span>
-            </div>
+<!-- No advisor linked -->
+<div class="ms-alert">
+    <div class="ms-alert-icon warning">
+        <svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+    </div>
+    <div>
+        <div class="ms-alert-title">No hay horario asignado</div>
+        <div class="ms-alert-desc">
+            Tu cuenta de usuario aun no esta vinculada a un registro de asesor en el sistema.
+            Contacta al coordinador para que te asigne a una campana y puedas consultar tu horario.
         </div>
     </div>
 </div>
 
 <?php elseif (empty($assignments)): ?>
-<!-- Mensaje cuando no hay horario aprobado -->
-<div class="card card-custom gutter-b">
-    <div class="card-body">
-        <div class="d-flex align-items-center bg-light-info rounded p-5">
-            <span class="svg-icon svg-icon-info svg-icon-3x mr-5">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
-                    <path d="M21 9V11C21 11.6 20.6 12 20 12H14V8H20C20.6 8 21 8.4 21 9ZM10 8H4C3.4 8 3 8.4 3 9V11C3 11.6 3.4 12 4 12H10V8Z" fill="currentColor"/>
-                    <path d="M15 2C13.3 2 12 3.3 12 5V8H15C16.7 8 18 6.7 18 5C18 3.3 16.7 2 15 2Z" fill="currentColor"/>
-                    <path opacity="0.3" d="M9 2C10.7 2 12 3.3 12 5V8H9C7.3 8 6 6.7 6 5C6 3.3 7.3 2 9 2ZM4 12V21C4 21.6 4.4 22 5 22H10V12H4ZM20 12V21C20 21.6 19.6 22 19 22H14V12H20Z" fill="currentColor"/>
-                </svg>
-            </span>
-            <div class="d-flex flex-column flex-grow-1 mr-2">
-                <span class="font-weight-bold text-dark-75 font-size-lg mb-1">
-                    Sin horario para <?= $monthNames[$currentMonth] ?> <?= $currentYear ?>
-                </span>
-                <span class="text-muted font-weight-bold">
-                    Aun no hay un horario aprobado para este mes. El supervisor debe generar y enviar
-                    el horario para aprobacion del coordinador.
-                </span>
-            </div>
+<!-- No approved schedule -->
+<div class="ms-alert">
+    <div class="ms-alert-icon info">
+        <svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/></svg>
+    </div>
+    <div>
+        <div class="ms-alert-title">Sin horario para <?= $monthNames[$scheduleMonth] ?> <?= $scheduleYear ?></div>
+        <div class="ms-alert-desc">
+            Aun no hay un horario aprobado para este mes. El supervisor debe generar y enviar
+            el horario para aprobacion del coordinador. Vuelve a consultar mas tarde.
         </div>
     </div>
 </div>
 
 <?php else: ?>
 
-<!-- Stats del mes -->
-<div class="row">
-    <div class="col-xl-3 col-md-6">
-        <div class="card card-custom bg-primary card-stretch gutter-b">
-            <div class="card-body">
-                <span class="svg-icon svg-icon-white svg-icon-3x">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
-                        <path opacity="0.3" d="M21 22H3C2.4 22 2 21.6 2 21V5C2 4.4 2.4 4 3 4H21C21.6 4 22 4.4 22 5V21C22 21.6 21.6 22 21 22Z" fill="currentColor"/>
-                        <path d="M6 6C5.4 6 5 5.6 5 5V3C5 2.4 5.4 2 6 2C6.6 2 7 2.4 7 3V5C7 5.6 6.6 6 6 6ZM11 5V3C11 2.4 10.6 2 10 2C9.4 2 9 2.4 9 3V5C9 5.6 9.4 6 10 6C10.6 6 11 5.6 11 5ZM15 5V3C15 2.4 14.6 2 14 2C13.4 2 13 2.4 13 3V5C13 5.6 13.4 6 14 6C14.6 6 15 5.6 15 5ZM19 5V3C19 2.4 18.6 2 18 2C17.4 2 17 2.4 17 3V5C17 5.6 17.4 6 18 6C18.6 6 19 5.6 19 5Z" fill="currentColor"/>
-                        <path d="M8.8 13.1C9.2 13.1 9.5 13 9.7 12.8C9.9 12.6 10.1 12.3 10.1 11.9C10.1 11.6 10 11.3 9.8 11.1C9.6 10.9 9.3 10.8 9 10.8C8.8 10.8 8.6 10.8 8.4 10.9C8.2 11 8.1 11.1 8 11.2C7.9 11.3 7.9 11.5 7.9 11.7C7.9 12 8 12.2 8.2 12.4C8.3 12.9 8.5 13.1 8.8 13.1ZM13.7 13.1C14.1 13.1 14.4 13 14.6 12.8C14.8 12.6 15 12.3 15 11.9C15 11.6 14.9 11.3 14.7 11.1C14.5 10.9 14.2 10.8 13.9 10.8C13.7 10.8 13.5 10.8 13.3 10.9C13.1 11 13 11.1 12.9 11.2C12.8 11.3 12.8 11.5 12.8 11.7C12.8 12 12.9 12.2 13.1 12.4C13.2 12.9 13.4 13.1 13.7 13.1ZM8.8 18.1C9.2 18.1 9.5 18 9.7 17.8C9.9 17.6 10.1 17.3 10.1 16.9C10.1 16.6 10 16.3 9.8 16.1C9.6 15.9 9.3 15.8 9 15.8C8.8 15.8 8.6 15.8 8.4 15.9C8.2 16 8.1 16.1 8 16.2C7.9 16.3 7.9 16.5 7.9 16.7C7.9 17 8 17.2 8.2 17.4C8.3 17.9 8.5 18.1 8.8 18.1ZM13.7 18.1C14.1 18.1 14.4 18 14.6 17.8C14.8 17.6 15 17.3 15 16.9C15 16.6 14.9 16.3 14.7 16.1C14.5 15.9 14.2 15.8 13.9 15.8C13.7 15.8 13.5 15.8 13.3 15.9C13.1 16 13 16.1 12.9 16.2C12.8 16.3 12.8 16.5 12.8 16.7C12.8 17 12.9 17.2 13.1 17.4C13.2 17.9 13.4 18.1 13.7 18.1Z" fill="currentColor"/>
-                    </svg>
-                </span>
-                <div class="text-inverse-primary font-weight-bolder font-size-h2 mt-3"><?= $totalHours ?></div>
-                <span class="text-inverse-primary font-weight-bold font-size-sm">Horas Programadas</span>
-            </div>
+<!-- Stats Row -->
+<div class="ms-stats">
+    <div class="ms-stat">
+        <div class="ms-stat-icon blue">
+            <svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+        </div>
+        <div>
+            <div class="ms-stat-label">Horas Programadas</div>
+            <div class="ms-stat-value"><?= $effectiveHours ?></div>
         </div>
     </div>
-    <div class="col-xl-3 col-md-6">
-        <div class="card card-custom bg-success card-stretch gutter-b">
-            <div class="card-body">
-                <span class="svg-icon svg-icon-white svg-icon-3x">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
-                        <path d="M13 5.91517C15.8 6.41517 18 8.81519 18 11.8152C18 12.5152 17.9 13.2152 17.6 13.9152L21.1 16.6152C21.8 15.1152 22.2 13.5152 22.2 11.8152C22.2 6.91519 18.5 2.81519 13.7 2.01519C13.3 1.91519 13 2.21519 13 2.61519V5.51519C13 5.71519 13 5.81517 13 5.91517ZM11 5.91517V2.51519C11 2.11519 10.7 1.81519 10.3 1.91519C5.7 2.81519 2 6.91519 2 11.8152C2 16.2152 5.4 20.2152 9.8 21.4152C10.2 21.5152 10.5 21.2152 10.5 20.8152V17.3152C10.5 17.1152 10.4 16.9152 10.2 16.8152C7.7 15.5152 6 12.8152 6 9.81519C6 7.61519 7 5.61519 8.5 4.31519L11 5.91517Z" fill="currentColor"/>
-                        <path opacity="0.3" d="M22 11.8V11.9C22 17.3 17.6 21.8 12.2 21.8C12 21.8 11.8 21.8 11.6 21.8C11.3 21.8 11 21.5 11 21.1V17.7C11 17.4 11.2 17.2 11.5 17.1C16.4 16.2 17.9 11.5 17.9 11.5C17.9 11.5 18 11.2 18.3 11.2H21.6C22 11.2 22.2 11.5 22 11.8Z" fill="currentColor"/>
-                    </svg>
-                </span>
-                <div class="text-inverse-success font-weight-bolder font-size-h2 mt-3"><?= $totalDays ?></div>
-                <span class="text-inverse-success font-weight-bold font-size-sm">Dias de Trabajo</span>
-            </div>
+    <div class="ms-stat">
+        <div class="ms-stat-icon green">
+            <svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/></svg>
+        </div>
+        <div>
+            <div class="ms-stat-label">Dias de Trabajo</div>
+            <div class="ms-stat-value"><?= $workDays ?></div>
         </div>
     </div>
-    <div class="col-xl-3 col-md-6">
-        <div class="card card-custom bg-warning card-stretch gutter-b">
-            <div class="card-body">
-                <span class="svg-icon svg-icon-white svg-icon-3x">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
-                        <path opacity="0.3" d="M20 15H4C2.9 15 2 14.1 2 13V7C2 6.4 2.4 6 3 6H21C21.6 6 22 6.4 22 7V13C22 14.1 21.1 15 20 15ZM13 12H11C10.5 12 10 12.4 10 13V16C10 16.5 10.4 17 11 17H13C13.6 17 14 16.6 14 16V13C14 12.4 13.6 12 13 12Z" fill="currentColor"/>
-                        <path d="M14 6V5H10V6H8V5C8 3.9 8.9 3 10 3H14C15.1 3 16 3.9 16 5V6H14ZM20 15H14V16C14 16.6 13.5 17 13 17H11C10.5 17 10 16.6 10 16V15H4C3.6 15 3.3 14.9 3 14.7V18C3 19.1 3.9 20 5 20H19C20.1 20 21 19.1 21 18V14.7C20.7 14.9 20.4 15 20 15Z" fill="currentColor"/>
-                    </svg>
-                </span>
-                <div class="text-inverse-warning font-weight-bolder font-size-h2 mt-3">
-                    <?= $totalDays > 0 ? round($totalHours / $totalDays, 1) : 0 ?>
-                </div>
-                <span class="text-inverse-warning font-weight-bold font-size-sm">Promedio Horas/Dia</span>
-            </div>
+    <div class="ms-stat">
+        <div class="ms-stat-icon amber">
+            <svg viewBox="0 0 24 24"><path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>
+        </div>
+        <div>
+            <div class="ms-stat-label">Promedio Horas/Dia</div>
+            <div class="ms-stat-value"><?= $avgHoursPerDay ?></div>
         </div>
     </div>
-    <div class="col-xl-3 col-md-6">
-        <div class="card card-custom bg-info card-stretch gutter-b">
-            <div class="card-body">
-                <span class="svg-icon svg-icon-white svg-icon-3x">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
-                        <path d="M11.2929 2.70711C11.6834 2.31658 12.3166 2.31658 12.7071 2.70711L15.2929 5.29289C15.6834 5.68342 15.6834 6.31658 15.2929 6.70711L12.7071 9.29289C12.3166 9.68342 11.6834 9.68342 11.2929 9.29289L8.70711 6.70711C8.31658 6.31658 8.31658 5.68342 8.70711 5.29289L11.2929 2.70711Z" fill="currentColor"/>
-                        <path d="M11.2929 14.7071C11.6834 14.3166 12.3166 14.3166 12.7071 14.7071L15.2929 17.2929C15.6834 17.6834 15.6834 18.3166 15.2929 18.7071L12.7071 21.2929C12.3166 21.6834 11.6834 21.6834 11.2929 21.2929L8.70711 18.7071C8.31658 18.3166 8.31658 17.6834 8.70711 17.2929L11.2929 14.7071Z" fill="currentColor"/>
-                        <path opacity="0.3" d="M5.29289 8.70711C5.68342 8.31658 6.31658 8.31658 6.70711 8.70711L9.29289 11.2929C9.68342 11.6834 9.68342 12.3166 9.29289 12.7071L6.70711 15.2929C6.31658 15.6834 5.68342 15.6834 5.29289 15.2929L2.70711 12.7071C2.31658 12.3166 2.31658 11.6834 2.70711 11.2929L5.29289 8.70711ZM17.2929 8.70711C17.6834 8.31658 18.3166 8.31658 18.7071 8.70711L21.2929 11.2929C21.6834 11.6834 21.6834 12.3166 21.2929 12.7071L18.7071 15.2929C18.3166 15.6834 17.6834 15.6834 17.2929 15.2929L14.7071 12.7071C14.3166 12.3166 14.3166 11.6834 14.7071 11.2929L17.2929 8.70711Z" fill="currentColor"/>
-                    </svg>
-                </span>
-                <div class="text-inverse-info font-weight-bolder font-size-h2 mt-3"><?= count($weeklyHours) ?></div>
-                <span class="text-inverse-info font-weight-bold font-size-sm">Semanas de Trabajo</span>
-            </div>
+    <div class="ms-stat">
+        <div class="ms-stat-icon slate">
+            <svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg>
+        </div>
+        <div>
+            <div class="ms-stat-label">Dias de Descanso</div>
+            <div class="ms-stat-value"><?= $restDays ?></div>
         </div>
     </div>
 </div>
 
-<!-- Calendario del mes -->
-<div class="card card-custom gutter-b">
-    <div class="card-header">
-        <div class="card-title">
-            <h3 class="card-label">
-                <span class="svg-icon svg-icon-primary svg-icon-2x mr-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
-                        <path opacity="0.3" d="M21 22H3C2.4 22 2 21.6 2 21V5C2 4.4 2.4 4 3 4H21C21.6 4 22 4.4 22 5V21C22 21.6 21.6 22 21 22Z" fill="currentColor"/>
-                        <path d="M6 6C5.4 6 5 5.6 5 5V3C5 2.4 5.4 2 6 2C6.6 2 7 2.4 7 3V5C7 5.6 6.6 6 6 6ZM11 5V3C11 2.4 10.6 2 10 2C9.4 2 9 2.4 9 3V5C9 5.6 9.4 6 10 6C10.6 6 11 5.6 11 5ZM15 5V3C15 2.4 14.6 2 14 2C13.4 2 13 2.4 13 3V5C13 5.6 13.4 6 14 6C14.6 6 15 5.6 15 5ZM19 5V3C19 2.4 18.6 2 18 2C17.4 2 17 2.4 17 3V5C17 5.6 17.4 6 18 6C18.6 6 19 5.6 19 5Z" fill="currentColor"/>
-                    </svg>
-                </span>
-                Horario de <?= $monthNames[$currentMonth] ?> <?= $currentYear ?>
-                <span class="d-block text-muted pt-2 font-size-sm">
-                    <?= $currentSchedule['campaign_nombre'] ?? 'Campana' ?>
-                </span>
-            </h3>
-        </div>
-        <div class="card-toolbar">
-            <span class="label label-lg label-light-success label-inline">
-                <i class="la la-check-circle mr-1"></i> Aprobado
-            </span>
-        </div>
+<!-- Today's Shift Card -->
+<?php
+$todayInRange = ($today >= sprintf('%04d-%02d-01', $scheduleYear, $scheduleMonth)
+    && $today <= sprintf('%04d-%02d-%02d', $scheduleYear, $scheduleMonth, $daysInMonth));
+$myScheduleId = $currentSchedule['id'] ?? 0;
+$myAdvisorId = $advisor['id'] ?? 0;
+$hasCheckedIn = !empty($todayCheckin);
+$checkinTimeStr = $hasCheckedIn ? date('H:i', strtotime($todayCheckin)) : '';
+?>
+<?php if ($todayInRange): ?>
+<div class="ms-today <?= $todayShift ? 'working' : 'resting' ?>">
+    <div class="ms-today-icon <?= $todayShift ? 'working' : 'resting' ?>">
+        <?php if ($todayShift): ?>
+        <svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+        <?php else: ?>
+        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+        <?php endif; ?>
     </div>
-    <div class="card-body">
-        <?php
-        // Generar calendario
-        $firstDay = mktime(0, 0, 0, $currentMonth, 1, $currentYear);
-        $daysInMonth = date('t', $firstDay);
-        $startDayOfWeek = date('w', $firstDay); // 0 = domingo
+    <div style="flex:1;">
+        <div class="ms-today-label <?= $todayShift ? 'working' : 'resting' ?>">
+            Hoy, <?= $dayNamesLong[(int)date('w')] ?> <?= date('d') ?>
+        </div>
+        <?php if ($todayShift): ?>
+            <?php
+            $todayRange = myScheduleHoursToBlocks($todayHours, $todayTypes);
+            $todayWorkHours = 0;
+            $todayBreakHours = 0;
+            foreach ($todayTypes as $h => $t) {
+                if ($t === 'break') $todayBreakHours += 0.5;
+                else $todayWorkHours++;
+            }
+            $todayTotalH = $todayWorkHours + $todayBreakHours;
+            ?>
+            <div class="ms-today-main">Trabajas de <?= $todayRange ?> (<?= $todayTotalH ?>h)</div>
+            <?php if ($todayBreakHours > 0): ?>
+            <div class="ms-today-sub">Incluye <?= $todayBreakHours ?>h de break</div>
+            <?php endif; ?>
+        <?php else: ?>
+            <div class="ms-today-main">Hoy es tu dia de descanso</div>
+            <div class="ms-today-sub">Disfruta tu tiempo libre y recarga energias</div>
+        <?php endif; ?>
+    </div>
+    <?php if ($todayShift && $myScheduleId): ?>
+    <div class="ms-checkin-area">
+        <button type="button" class="ms-checkin-btn <?= $hasCheckedIn ? 'checked' : '' ?>"
+                id="btnMyCheckin"
+                data-schedule="<?= $myScheduleId ?>"
+                data-advisor="<?= $myAdvisorId ?>"
+                onclick="doMyCheckin()">
+            <?php if ($hasCheckedIn): ?>
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+            <span>Check-in hecho</span>
+            <?php else: ?>
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            <span>Hacer Check-in</span>
+            <?php endif; ?>
+        </button>
+        <?php if ($hasCheckedIn): ?>
+        <div class="ms-checkin-time" id="checkinTime">Registrado a las <?= $checkinTimeStr ?></div>
+        <?php else: ?>
+        <div class="ms-checkin-time" id="checkinTime">Confirma tu asistencia de hoy</div>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
 
-        $dayNames = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
+<!-- Weekly Timeline -->
+<div class="ms-week">
+    <div class="ms-week-title">
+        <svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
+        Esta Semana
+    </div>
+    <div class="ms-week-grid">
+        <?php foreach ($weekDays as $idx => $wd):
+            $wdShift = $assignmentsByDate[$wd] ?? null;
+            $isToday = ($wd === $today);
+            $hasWork = !empty($wdShift);
+            $dayNum = date('d', strtotime($wd));
+            $cssClass = 'ms-week-day';
+            if ($hasWork) $cssClass .= ' has-work';
+            else $cssClass .= ' is-rest';
+            if ($isToday) $cssClass .= ' is-today';
         ?>
-
-        <div class="table-responsive">
-            <table class="table table-bordered">
-                <thead>
-                    <tr class="bg-gray-100">
-                        <?php foreach ($dayNames as $dayName): ?>
-                        <th class="text-center font-weight-bolder text-dark-75" style="width: 14.28%;">
-                            <?= $dayName ?>
-                        </th>
-                        <?php endforeach; ?>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php
-                    $day = 1;
-                    $totalWeeks = ceil(($daysInMonth + $startDayOfWeek) / 7);
-
-                    for ($week = 0; $week < $totalWeeks; $week++):
-                    ?>
-                    <tr>
-                        <?php for ($dayOfWeek = 0; $dayOfWeek < 7; $dayOfWeek++):
-                            $currentPosition = $week * 7 + $dayOfWeek;
-
-                            if ($currentPosition < $startDayOfWeek || $day > $daysInMonth):
-                        ?>
-                            <td class="bg-light" style="height: 100px;"></td>
-                        <?php else:
-                            $dateStr = sprintf('%04d-%02d-%02d', $currentYear, $currentMonth, $day);
-                            $dayHours = $assignmentsByDate[$dateStr] ?? [];
-                            $hasWork = !empty($dayHours);
-                            $isToday = ($dateStr === date('Y-m-d'));
-                            $bgClass = $hasWork ? 'bg-light-primary' : '';
-                            if ($isToday) $bgClass = 'bg-light-success';
-                        ?>
-                            <td class="<?= $bgClass ?> p-2" style="height: 100px; vertical-align: top;">
-                                <div class="d-flex justify-content-between align-items-start mb-2">
-                                    <span class="font-weight-bolder font-size-lg <?= $isToday ? 'text-success' : 'text-dark-75' ?>">
-                                        <?= $day ?>
-                                    </span>
-                                    <?php if ($isToday): ?>
-                                    <span class="label label-sm label-success">Hoy</span>
-                                    <?php endif; ?>
-                                </div>
-
-                                <?php if ($hasWork):
-                                    sort($dayHours);
-                                    $hoursCount = count($dayHours);
-                                    $firstHour = min($dayHours);
-                                    $lastHour = max($dayHours);
-                                ?>
-                                <div class="d-flex flex-column">
-                                    <span class="label label-lg label-primary label-inline mb-1">
-                                        <?= $hoursCount ?>h
-                                    </span>
-                                    <small class="text-muted">
-                                        <?= sprintf('%02d:00 - %02d:00', $firstHour, $lastHour + 1) ?>
-                                    </small>
-                                </div>
-                                <?php else: ?>
-                                <span class="text-muted font-size-sm">Descanso</span>
-                                <?php endif; ?>
-                            </td>
-                        <?php
-                            $day++;
-                            endif;
-                        endfor; ?>
-                    </tr>
-                    <?php endfor; ?>
-                </tbody>
-            </table>
+        <div class="<?= $cssClass ?>">
+            <div class="ms-week-day-name"><?= $dayNamesShort[$idx] ?></div>
+            <div class="ms-week-day-num"><?= $dayNum ?></div>
+            <?php if ($hasWork):
+                $wdHours = $wdShift['hours'];
+                sort($wdHours);
+                $wdCount = 0;
+                foreach ($wdShift['types'] as $t) {
+                    $wdCount += ($t === 'break') ? 0.5 : 1;
+                }
+            ?>
+                <div class="ms-week-day-hours"><?= $wdCount ?>h</div>
+                <div class="ms-week-day-range"><?= sprintf('%02d-%02d', min($wdHours), max($wdHours) + 1) ?></div>
+            <?php else: ?>
+                <div class="ms-week-day-hours">Libre</div>
+            <?php endif; ?>
         </div>
+        <?php endforeach; ?>
     </div>
 </div>
 
-<!-- Detalle por semana -->
-<div class="card card-custom">
-    <div class="card-header">
-        <div class="card-title">
-            <h3 class="card-label">
-                <span class="svg-icon svg-icon-primary svg-icon-2x mr-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
-                        <path d="M17.5 11H6.5C4 11 2 9 2 6.5C2 4 4 2 6.5 2H17.5C20 2 22 4 22 6.5C22 9 20 11 17.5 11ZM15 6.5C15 7.9 16.1 9 17.5 9C18.9 9 20 7.9 20 6.5C20 5.1 18.9 4 17.5 4C16.1 4 15 5.1 15 6.5Z" fill="currentColor"/>
-                        <path opacity="0.3" d="M17.5 22H6.5C4 22 2 20 2 17.5C2 15 4 13 6.5 13H17.5C20 13 22 15 22 17.5C22 20 20 22 17.5 22ZM4 17.5C4 18.9 5.1 20 6.5 20C7.9 20 9 18.9 9 17.5C9 16.1 7.9 15 6.5 15C5.1 15 4 16.1 4 17.5Z" fill="currentColor"/>
-                    </svg>
-                </span>
-                Detalle de Turnos
-            </h3>
+<!-- Monthly Calendar -->
+<?php
+$firstDay = mktime(0, 0, 0, $scheduleMonth, 1, $scheduleYear);
+$startDow = (int)date('N', $firstDay); // 1=Mon, 7=Sun
+$calDayNames = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
+?>
+<div class="ms-calendar">
+    <div class="ms-calendar-header">
+        <div class="ms-calendar-title">
+            <svg viewBox="0 0 24 24"><path d="M20 3h-1V1h-2v2H7V1H5v2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 18H4V10h16v11zm0-13H4V5h16v3z"/></svg>
+            Calendario de <?= $monthNames[$scheduleMonth] ?> <?= $scheduleYear ?>
+        </div>
+        <div class="ms-calendar-legend">
+            <div class="ms-legend-item">
+                <div class="ms-legend-dot" style="background: #2563eb;"></div> Trabajo
+            </div>
+            <div class="ms-legend-item">
+                <div class="ms-legend-dot" style="background: #475569;"></div> Nocturno
+            </div>
+            <div class="ms-legend-item">
+                <div class="ms-legend-dot" style="background: #d97706;"></div> Extra
+            </div>
         </div>
     </div>
-    <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-head-custom table-vertical-center">
-                <thead>
-                    <tr class="text-left">
-                        <th class="pl-0">Fecha</th>
-                        <th>Dia</th>
-                        <th>Horario</th>
-                        <th>Horas</th>
-                        <th>Tipo</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php
-                    $dates = array_keys($assignmentsByDate);
-                    sort($dates);
-                    foreach ($dates as $dateStr):
-                        $hours = $assignmentsByDate[$dateStr];
-                        sort($hours);
-                        $hoursCount = count($hours);
-                        $firstHour = min($hours);
-                        $lastHour = max($hours);
-                        $dayOfWeek = date('w', strtotime($dateStr));
-                        $dayNames2 = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'];
-                        $isToday = ($dateStr === date('Y-m-d'));
-                        $isNocturno = ($firstHour >= 22 || $lastHour <= 6);
-                    ?>
-                    <tr <?= $isToday ? 'class="bg-light-success"' : '' ?>>
-                        <td class="pl-0">
-                            <span class="text-dark-75 font-weight-bolder d-block font-size-lg">
-                                <?= date('d/m/Y', strtotime($dateStr)) ?>
-                            </span>
-                            <?php if ($isToday): ?>
-                            <span class="text-success font-weight-bold">Hoy</span>
-                            <?php endif; ?>
-                        </td>
-                        <td>
-                            <span class="text-dark-75 font-weight-bolder">
-                                <?= $dayNames2[$dayOfWeek] ?>
-                            </span>
-                        </td>
-                        <td>
-                            <span class="text-dark-75 font-weight-bolder">
-                                <?= sprintf('%02d:00 - %02d:00', $firstHour, $lastHour + 1) ?>
-                            </span>
-                        </td>
-                        <td>
-                            <span class="label label-lg label-light-primary label-inline font-weight-bolder">
-                                <?= $hoursCount ?>h
-                            </span>
-                        </td>
-                        <td>
-                            <?php if ($isNocturno): ?>
-                            <span class="label label-lg label-light-dark label-inline">
-                                <i class="la la-moon mr-1"></i> Nocturno
-                            </span>
-                            <?php elseif ($hoursCount > 8): ?>
-                            <span class="label label-lg label-light-warning label-inline">
-                                <i class="la la-plus-circle mr-1"></i> Extra
-                            </span>
-                            <?php else: ?>
-                            <span class="label label-lg label-light-success label-inline">
-                                <i class="la la-sun mr-1"></i> Normal
-                            </span>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+    <div class="ms-calendar-grid">
+        <?php foreach ($calDayNames as $dn): ?>
+        <div class="ms-cal-head"><?= $dn ?></div>
+        <?php endforeach; ?>
+
+        <?php
+        // Empty cells before first day
+        for ($e = 1; $e < $startDow; $e++):
+        ?>
+        <div class="ms-cal-day empty"></div>
+        <?php endfor; ?>
+
+        <?php for ($day = 1; $day <= $daysInMonth; $day++):
+            $dateStr = sprintf('%04d-%02d-%02d', $scheduleYear, $scheduleMonth, $day);
+            $dayData = $assignmentsByDate[$dateStr] ?? null;
+            $isToday = ($dateStr === $today);
+            $hasWork = !empty($dayData);
+            $cellClass = 'ms-cal-day';
+            if ($isToday) $cellClass .= ' today';
+
+            $dayHCount = 0;
+            $isNocturno = false;
+            $hasExtra = false;
+            $timeRange = '';
+
+            if ($hasWork) {
+                $dHours = $dayData['hours'];
+                sort($dHours);
+                foreach ($dayData['types'] as $t) {
+                    $dayHCount += ($t === 'break') ? 0.5 : 1;
+                }
+                $isNocturno = (min($dHours) >= 22 || max($dHours) <= 6);
+                // Check for extra hours in assignments
+                foreach ($assignments as $a) {
+                    if ($a['fecha'] === $dateStr && !empty($a['es_extra'])) {
+                        $hasExtra = true;
+                        break;
+                    }
+                }
+                $timeRange = sprintf('%02d:00-%02d:00', min($dHours), max($dHours) + 1);
+            }
+        ?>
+        <div class="<?= $cellClass ?>">
+            <div class="ms-cal-day-num"><?= $day ?></div>
+            <?php if ($hasWork): ?>
+                <?php if ($isNocturno): ?>
+                    <div class="ms-cal-dot nocturno"></div>
+                <?php elseif ($hasExtra): ?>
+                    <div class="ms-cal-dot extra"></div>
+                <?php else: ?>
+                    <div class="ms-cal-dot work"></div>
+                <?php endif; ?>
+                <div class="ms-cal-day-info">
+                    <span class="ms-cal-hours-badge <?= $hasExtra ? 'extra' : 'work' ?>"><?= $dayHCount ?>h</span>
+                    <span class="ms-cal-time"><?= $timeRange ?></span>
+                </div>
+            <?php else: ?>
+                <span class="ms-cal-hours-badge rest">Descanso</span>
+            <?php endif; ?>
         </div>
+        <?php endfor; ?>
+
+        <?php
+        // Trailing empty cells
+        $lastDow = (int)date('N', mktime(0, 0, 0, $scheduleMonth, $daysInMonth, $scheduleYear));
+        for ($e = $lastDow + 1; $e <= 7; $e++):
+        ?>
+        <div class="ms-cal-day empty"></div>
+        <?php endfor; ?>
+    </div>
+</div>
+
+<!-- Shift Detail Table -->
+<div class="ms-detail">
+    <div class="ms-detail-header">
+        <svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:#94a3b8;"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+        <span class="ms-detail-title">Detalle de Turnos</span>
+    </div>
+    <div style="overflow-x: auto;">
+        <table class="ms-table">
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Dia</th>
+                    <th>Horario</th>
+                    <th>Horas</th>
+                    <th>Tipo</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php
+                $sortedDates = array_keys($assignmentsByDate);
+                sort($sortedDates);
+                foreach ($sortedDates as $dateStr):
+                    $dayData = $assignmentsByDate[$dateStr];
+                    $dHours = $dayData['hours'];
+                    $dTypes = $dayData['types'];
+                    sort($dHours);
+
+                    $hCount = 0;
+                    foreach ($dTypes as $t) {
+                        $hCount += ($t === 'break') ? 0.5 : 1;
+                    }
+                    $firstH = min($dHours);
+                    $lastH = max($dHours);
+                    $isToday = ($dateStr === $today);
+                    $isNocturno = ($firstH >= 22 || $lastH <= 6);
+                    $hasExtraRow = false;
+                    foreach ($assignments as $a) {
+                        if ($a['fecha'] === $dateStr && !empty($a['es_extra'])) {
+                            $hasExtraRow = true;
+                            break;
+                        }
+                    }
+                    $dow = (int)date('w', strtotime($dateStr));
+                    $timeRange = myScheduleHoursToBlocks($dHours, $dTypes);
+                ?>
+                <tr class="<?= $isToday ? 'row-today' : '' ?>">
+                    <td class="cell-date">
+                        <?= date('d/m/Y', strtotime($dateStr)) ?>
+                        <?php if ($isToday): ?>
+                        <span class="cell-today-tag">HOY</span>
+                        <?php endif; ?>
+                    </td>
+                    <td><?= $dayNamesLong[$dow] ?></td>
+                    <td><?= $timeRange ?></td>
+                    <td class="cell-hours"><?= $hCount ?>h</td>
+                    <td>
+                        <?php if ($hasExtraRow): ?>
+                        <span class="ms-type-badge extra">
+                            <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                            Extra
+                        </span>
+                        <?php elseif ($isNocturno): ?>
+                        <span class="ms-type-badge nocturno">
+                            <svg viewBox="0 0 24 24"><path d="M9.37 5.51A7.35 7.35 0 0 0 9.1 7.5c0 4.08 3.32 7.4 7.4 7.4.68 0 1.35-.09 1.99-.27A7.014 7.014 0 0 1 12 19c-3.86 0-7-3.14-7-7 0-2.93 1.81-5.45 4.37-6.49zM12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>
+                            Nocturno
+                        </span>
+                        <?php else: ?>
+                        <span class="ms-type-badge normal">
+                            <svg viewBox="0 0 24 24"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></svg>
+                            Normal
+                        </span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
     </div>
 </div>
 
@@ -375,6 +1084,66 @@ ob_start();
 
 <?php
 $content = ob_get_clean();
+
+$appUrl = $_ENV['APP_URL'] ?? '/system-horario/TurnoFlow/public';
+
+$extraScripts = [];
+$csrfToken = \App\Services\CsrfService::token();
+$extraScripts[] = "<script>const BASE_URL = '{$appUrl}'; const CSRF_TOKEN = '{$csrfToken}';</script>";
+$extraScripts[] = <<<'SCRIPT'
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Scroll today's row into view in the detail table
+    var todayRow = document.querySelector('.row-today');
+    if (todayRow) {
+        todayRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    // Scroll today into view in the calendar
+    var todayCell = document.querySelector('.ms-cal-day.today');
+    if (todayCell) {
+        todayCell.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+});
+
+function doMyCheckin() {
+    var btn = document.getElementById('btnMyCheckin');
+    if (!btn || btn.disabled) return;
+
+    var scheduleId = btn.dataset.schedule;
+    var advisorId = btn.dataset.advisor;
+    var fecha = new Date().toISOString().slice(0, 10);
+
+    btn.disabled = true;
+
+    fetch(BASE_URL + '/schedules/' + scheduleId + '/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+        body: JSON.stringify({ advisor_id: advisorId, fecha: fecha })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        btn.disabled = false;
+        var timeEl = document.getElementById('checkinTime');
+
+        if (data.checked) {
+            btn.classList.add('checked');
+            btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span>Check-in hecho</span>';
+            if (timeEl) timeEl.textContent = 'Registrado a las ' + data.time;
+        } else {
+            btn.classList.remove('checked');
+            btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg><span>Hacer Check-in</span>';
+            if (timeEl) timeEl.textContent = 'Confirma tu asistencia de hoy';
+        }
+    })
+    .catch(function(err) {
+        btn.disabled = false;
+        console.error('Error en check-in:', err);
+        if (typeof showToast === 'function') showToast('Error al registrar el check-in. Intenta de nuevo.', 'error');
+        else alert('Error al registrar el check-in. Intenta de nuevo.');
+    });
+}
+</script>
+SCRIPT;
 
 include APP_PATH . '/Views/layouts/main.php';
 ?>

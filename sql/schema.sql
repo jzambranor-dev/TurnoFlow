@@ -203,6 +203,18 @@ CREATE TABLE IF NOT EXISTS attendance (
 );
 
 -- ============================================
+-- CHECK-IN DE ASESORES
+-- ============================================
+CREATE TABLE IF NOT EXISTS advisor_checkins (
+    id              BIGSERIAL PRIMARY KEY,
+    advisor_id      INTEGER NOT NULL REFERENCES advisors(id),
+    schedule_id     INTEGER NOT NULL REFERENCES schedules(id),
+    fecha           DATE NOT NULL,
+    checkin_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (advisor_id, schedule_id, fecha)
+);
+
+-- ============================================
 -- REPLANIFICACIONES
 -- ============================================
 CREATE TABLE IF NOT EXISTS replanning_log (

@@ -14,30 +14,41 @@ ob_start();
     <!-- Header -->
     <div class="page-header">
         <div class="header-content">
-            <a href="<?= BASE_URL ?>/schedules" class="back-link">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-                Volver a Horarios
-            </a>
+            <div class="form-breadcrumb" style="margin-bottom:8px;">
+                <a href="<?= BASE_URL ?>/schedules" style="color:#2563eb;text-decoration:none;font-weight:500;">Horarios</a>
+                <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:#94a3b8;"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                <span>Importar</span>
+            </div>
             <h1 class="header-title">Importar Dimensionamiento</h1>
             <p class="header-subtitle">Carga el archivo Excel con los requerimientos de personal por hora</p>
         </div>
     </div>
 
     <?php if (!empty($flashSuccess)): ?>
-    <div class="flash-banner flash-success"><?= htmlspecialchars($flashSuccess) ?></div>
+    <div class="flash-banner flash-success alert-dismissible">
+        <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;flex-shrink:0;"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+        <span><?= htmlspecialchars($flashSuccess) ?></span>
+        <button type="button" class="alert-close" onclick="this.parentElement.remove();">&times;</button>
+    </div>
     <?php endif; ?>
 
     <?php if (!empty($flashError)): ?>
-    <div class="flash-banner flash-error"><?= htmlspecialchars($flashError) ?></div>
+    <div class="flash-banner flash-error alert-dismissible">
+        <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;flex-shrink:0;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+        <span><?= htmlspecialchars($flashError) ?></span>
+        <button type="button" class="alert-close" onclick="this.parentElement.remove();">&times;</button>
+    </div>
     <?php endif; ?>
 
     <div class="import-grid">
         <!-- Form Panel -->
         <div class="form-panel">
             <form action="<?= BASE_URL ?>/schedules/import" method="POST" enctype="multipart/form-data" id="importForm">
+                <?= \App\Services\CsrfService::field() ?>
                 <!-- Campaign Selection -->
                 <div class="form-section">
                     <label class="form-label">
+                        <span class="form-step-number">1</span>
                         <span class="label-text">Campaña</span>
                         <span class="label-required">*</span>
                     </label>
@@ -55,6 +66,7 @@ ob_start();
                 <!-- Period Selection -->
                 <div class="form-section">
                     <label class="form-label">
+                        <span class="form-step-number">2</span>
                         <span class="label-text">Periodo</span>
                         <span class="label-required">*</span>
                     </label>
@@ -84,6 +96,7 @@ ob_start();
                 <!-- File Upload -->
                 <div class="form-section">
                     <label class="form-label">
+                        <span class="form-step-number">3</span>
                         <span class="label-text">Archivo Excel</span>
                         <span class="label-required">*</span>
                     </label>
@@ -219,7 +232,27 @@ $extraStyles[] = <<<'STYLE'
         font-size: 0.875rem;
         font-weight: 600;
         border: 1px solid transparent;
+        display: flex;
+        align-items: center;
+        gap: 10px;
     }
+
+    .flash-banner.alert-dismissible { position: relative; padding-right: 40px; }
+
+    .alert-close {
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        font-size: 1.2rem;
+        cursor: pointer;
+        color: inherit;
+        opacity: 0.6;
+        line-height: 1;
+    }
+    .alert-close:hover { opacity: 1; }
 
     .flash-success {
         background: #ecfdf5;
@@ -233,30 +266,24 @@ $extraStyles[] = <<<'STYLE'
         border-color: #fecaca;
     }
 
+    /* Step Number */
+    .form-step-number {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #2563eb;
+        color: #fff;
+        font-size: 0.75rem;
+        font-weight: 700;
+        flex-shrink: 0;
+    }
+
     /* Header */
     .page-header {
         margin-bottom: 28px;
-    }
-
-    .back-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 0.8rem;
-        font-weight: 500;
-        color: #64748b;
-        text-decoration: none;
-        margin-bottom: 12px;
-        transition: color 0.15s;
-    }
-
-    .back-link:hover {
-        color: #2563eb;
-    }
-
-    .back-link svg {
-        width: 16px;
-        height: 16px;
     }
 
     .header-title {
@@ -681,6 +708,16 @@ $extraScripts = [];
 $extraScripts[] = <<<'SCRIPT'
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Auto-dismiss flash banners
+    document.querySelectorAll('.flash-banner').forEach(function(el) {
+        setTimeout(function() {
+            el.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(-10px)';
+            setTimeout(function() { el.remove(); }, 400);
+        }, 5000);
+    });
+
     const uploadZone = document.getElementById('uploadZone');
     const fileInput = document.getElementById('fileInput');
     const uploadContent = uploadZone.querySelector('.upload-content');

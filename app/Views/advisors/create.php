@@ -9,6 +9,11 @@ ob_start();
     <!-- Header -->
     <div class="page-header">
         <div>
+            <div class="form-breadcrumb">
+                <a href="<?= BASE_URL ?>/advisors">Asesores</a>
+                <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                <span>Nuevo</span>
+            </div>
             <h1 class="page-header-title">Nuevo Asesor</h1>
             <p class="page-header-subtitle">Registra un nuevo asesor en el sistema</p>
         </div>
@@ -27,10 +32,12 @@ ob_start();
     <?php endif; ?>
 
     <form action="<?= BASE_URL ?>/advisors" method="POST">
+        <?= \App\Services\CsrfService::field() ?>
         <!-- Datos Basicos -->
         <div class="data-panel" style="margin-bottom: 24px;">
             <div class="panel-header">
                 <div class="panel-title">
+                    <span class="form-step-number">1</span>
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
                     Datos Basicos
                 </div>
@@ -81,8 +88,9 @@ ob_start();
         <div class="data-panel" style="margin-bottom: 24px;">
             <div class="panel-header">
                 <div class="panel-title">
+                    <span class="form-step-number">2</span>
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
-                    Restricciónes y Permisos
+                    Restricciones y Permisos
                 </div>
             </div>
             <div class="panel-body">

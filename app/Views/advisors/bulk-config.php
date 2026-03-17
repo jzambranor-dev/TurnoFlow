@@ -51,6 +51,7 @@ ob_start();
 
     <?php if ($selectedCampaignId && !empty($advisors)): ?>
     <form method="POST" action="<?= BASE_URL ?>/advisors/bulk-config" id="bulkForm">
+        <?= \App\Services\CsrfService::field() ?>
         <input type="hidden" name="campaign_id" value="<?= $selectedCampaignId ?>">
 
         <!-- Paso 2: Selecciónar Asesores -->

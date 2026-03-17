@@ -367,7 +367,7 @@ class ActivityController
 
     private function getCampaign(\PDO $pdo, int $campaignId, array $user): ?array
     {
-        $canManageAll = in_array($user['rol'] ?? '', ['admin', 'coordinador'], true);
+        $canManageAll = in_array($user['rol'] ?? '', ['admin', 'gerente', 'coordinador'], true);
 
         if ($canManageAll) {
             $stmt = $pdo->prepare("SELECT * FROM campaigns WHERE id = :id");

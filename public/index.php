@@ -7,7 +7,8 @@ declare(strict_types=1);
  */
 
 error_reporting(E_ALL);
-ini_set('display_errors', '1');
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
 
 // Constantes de rutas
 define('BASE_PATH', dirname(__DIR__));
@@ -20,8 +21,15 @@ require_once BASE_PATH . '/vendor/autoload.php';
 // Configuración de base de datos
 require_once BASE_PATH . '/config/database.php';
 
-// Iniciar sesión
-session_start();
+// Iniciar sesión con opciones seguras
+session_start([
+    'cookie_httponly' => true,
+    'cookie_samesite' => 'Lax',
+    'use_strict_mode' => true,
+]);
+
+// CSRF Service
+require_once APP_PATH . '/Services/CsrfService.php';
 
 // Obtener la URI
 $requestUri = $_SERVER['REQUEST_URI'];
@@ -35,6 +43,59 @@ $uri = rtrim($uri, '/') ?: '/';
 
 $method = $_SERVER['REQUEST_METHOD'];
 $routeKey = "{$method} {$uri}";
+
+// =====================
+// API REST (autenticacion por Bearer token, sin sesion)
+// =====================
+
+if (str_starts_with($uri, '/api/')) {
+    header('Content-Type: application/json; charset=utf-8');
+    require_once APP_PATH . '/Services/ApiAuthService.php';
+
+    try {
+        // API - Listar campanas
+        if ($routeKey === 'GET /api/reports/campaigns') {
+            require_once APP_PATH . '/Controllers/ApiReportController.php';
+            $controller = new App\Controllers\ApiReportController();
+            $controller->campaigns();
+            exit;
+        }
+
+        // API - Reporte de horas por campana
+        if ($method === 'GET' && preg_match('#^/api/reports/hours/(\d+)$#', $uri, $matches)) {
+            require_once APP_PATH . '/Controllers/ApiReportController.php';
+            $controller = new App\Controllers\ApiReportController();
+            $controller->hours((int)$matches[1]);
+            exit;
+        }
+
+        // API - Reporte unificado (todas las campanas)
+        if ($routeKey === 'GET /api/reports/unified') {
+            require_once APP_PATH . '/Controllers/ApiReportController.php';
+            $controller = new App\Controllers\ApiReportController();
+            $controller->unified();
+            exit;
+        }
+
+        // API - Reporte de asistencia por campana
+        if ($method === 'GET' && preg_match('#^/api/reports/attendance/(\d+)$#', $uri, $matches)) {
+            require_once APP_PATH . '/Controllers/ApiReportController.php';
+            $controller = new App\Controllers\ApiReportController();
+            $controller->attendance((int)$matches[1]);
+            exit;
+        }
+
+        // API - Ruta no encontrada
+        http_response_code(404);
+        echo json_encode(['success' => false, 'error' => 'Endpoint no encontrado']);
+        exit;
+    } catch (\Throwable $e) {
+        error_log('API Error: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => 'Error interno del servidor']);
+        exit;
+    }
+}
 
 // =====================
 // RUTAS PUBLICAS
@@ -52,6 +113,7 @@ if ($routeKey === 'GET /' || $routeKey === 'GET /login') {
 }
 
 if ($routeKey === 'POST /' || $routeKey === 'POST /login') {
+    \App\Services\CsrfService::validateOrFail();
     require_once APP_PATH . '/Controllers/AuthController.php';
     $controller = new App\Controllers\AuthController();
     $controller->login();
@@ -72,6 +134,15 @@ if ($routeKey === 'GET /logout') {
 if (!isset($_SESSION['user'])) {
     header('Location: ' . BASE_URL . '/login');
     exit;
+}
+
+// =====================
+// CSRF — validar en todas las peticiones POST autenticadas
+// (login ya se valida arriba; las APIs JSON usan header X-CSRF-TOKEN)
+// =====================
+
+if ($method === 'POST') {
+    \App\Services\CsrfService::validateOrFail();
 }
 
 // =====================
@@ -174,6 +245,13 @@ if ($routeKey === 'POST /schedules/generate') {
     exit;
 }
 
+if ($routeKey === 'POST /schedules/regenerate-partial') {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->regeneratePartial();
+    exit;
+}
+
 if ($routeKey === 'GET /schedules/import') {
     require_once APP_PATH . '/Controllers/ScheduleController.php';
     $controller = new App\Controllers\ScheduleController();
@@ -210,6 +288,20 @@ if ($method === 'GET' && preg_match('#^/reports/hours/(\d+)$#', $uri, $matches))
     exit;
 }
 
+if ($method === 'GET' && preg_match('#^/reports/hours/(\d+)/export$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ReportController.php';
+    $controller = new App\Controllers\ReportController();
+    $controller->exportHours((int)$matches[1]);
+    exit;
+}
+
+if ($routeKey === 'GET /reports/export-unified') {
+    require_once APP_PATH . '/Controllers/ReportController.php';
+    $controller = new App\Controllers\ReportController();
+    $controller->exportUnified();
+    exit;
+}
+
 // Usuarios
 if ($routeKey === 'GET /users') {
     require_once APP_PATH . '/Controllers/UserController.php';
@@ -237,6 +329,64 @@ if ($routeKey === 'GET /settings') {
     require_once APP_PATH . '/Controllers/SettingController.php';
     $controller = new App\Controllers\SettingController();
     $controller->index();
+    exit;
+}
+
+if ($routeKey === 'POST /settings/monthly-hours') {
+    require_once APP_PATH . '/Controllers/SettingController.php';
+    $controller = new App\Controllers\SettingController();
+    $controller->saveMonthlyHours();
+    exit;
+}
+
+if ($routeKey === 'POST /settings/monthly-hours/delete') {
+    require_once APP_PATH . '/Controllers/SettingController.php';
+    $controller = new App\Controllers\SettingController();
+    $controller->deleteMonthlyHours();
+    exit;
+}
+
+if ($routeKey === 'POST /settings/holidays') {
+    require_once APP_PATH . '/Controllers/SettingController.php';
+    $controller = new App\Controllers\SettingController();
+    $controller->saveHoliday();
+    exit;
+}
+
+if ($routeKey === 'POST /settings/holidays/delete') {
+    require_once APP_PATH . '/Controllers/SettingController.php';
+    $controller = new App\Controllers\SettingController();
+    $controller->deleteHoliday();
+    exit;
+}
+
+if ($routeKey === 'POST /settings/params') {
+    require_once APP_PATH . '/Controllers/SettingController.php';
+    $controller = new App\Controllers\SettingController();
+    $controller->saveParams();
+    exit;
+}
+
+// API Tokens
+if ($routeKey === 'POST /settings/api-tokens') {
+    require_once APP_PATH . '/Controllers/SettingController.php';
+    $controller = new App\Controllers\SettingController();
+    $controller->createApiToken();
+    exit;
+}
+
+if ($routeKey === 'POST /settings/api-tokens/revoke') {
+    require_once APP_PATH . '/Controllers/SettingController.php';
+    $controller = new App\Controllers\SettingController();
+    $controller->revokeApiToken();
+    exit;
+}
+
+// Changelog
+if ($routeKey === 'GET /changelog') {
+    require_once APP_PATH . '/Controllers/SettingController.php';
+    $controller = new App\Controllers\SettingController();
+    $controller->changelog();
     exit;
 }
 
@@ -405,8 +555,8 @@ if ($method === 'POST' && preg_match('#^/users/(\d+)/reset-password$#', $uri, $m
     exit;
 }
 
-// Usuarios - toggle status
-if ($method === 'GET' && preg_match('#^/users/(\d+)/toggle-status$#', $uri, $matches)) {
+// Usuarios - toggle status (POST)
+if ($method === 'POST' && preg_match('#^/users/(\d+)/toggle-status$#', $uri, $matches)) {
     require_once APP_PATH . '/Controllers/UserController.php';
     $controller = new App\Controllers\UserController();
     $controller->toggleStatus((int)$matches[1]);
@@ -421,27 +571,51 @@ if ($method === 'GET' && preg_match('#^/schedules/(\d+)$#', $uri, $matches)) {
     exit;
 }
 
-// Horarios - enviar para aprobacion
-if ($method === 'GET' && preg_match('#^/schedules/(\d+)/submit$#', $uri, $matches)) {
+// Horarios - enviar para aprobacion (POST)
+if ($method === 'POST' && preg_match('#^/schedules/(\d+)/submit$#', $uri, $matches)) {
     require_once APP_PATH . '/Controllers/ScheduleController.php';
     $controller = new App\Controllers\ScheduleController();
     $controller->submit((int)$matches[1]);
     exit;
 }
 
-// Horarios - aprobar
-if ($method === 'GET' && preg_match('#^/schedules/(\d+)/approve$#', $uri, $matches)) {
+// Horarios - aprobar (POST)
+if ($method === 'POST' && preg_match('#^/schedules/(\d+)/approve$#', $uri, $matches)) {
     require_once APP_PATH . '/Controllers/ScheduleController.php';
     $controller = new App\Controllers\ScheduleController();
     $controller->approve((int)$matches[1]);
     exit;
 }
 
-// Horarios - rechazar
-if ($method === 'GET' && preg_match('#^/schedules/(\d+)/reject$#', $uri, $matches)) {
+// Horarios - rechazar (POST)
+if ($method === 'POST' && preg_match('#^/schedules/(\d+)/reject$#', $uri, $matches)) {
     require_once APP_PATH . '/Controllers/ScheduleController.php';
     $controller = new App\Controllers\ScheduleController();
     $controller->reject((int)$matches[1]);
+    exit;
+}
+
+// Horarios - seguimiento diario
+if ($method === 'GET' && preg_match('#^/schedules/(\d+)/tracking$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->dailyTracking((int)$matches[1]);
+    exit;
+}
+
+// Horarios - check-in asesor (API JSON)
+if ($method === 'POST' && preg_match('#^/schedules/(\d+)/checkin$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->toggleCheckin((int)$matches[1]);
+    exit;
+}
+
+// Horarios - guardar asistencia (API JSON)
+if ($method === 'POST' && preg_match('#^/schedules/(\d+)/attendance$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->saveAttendance((int)$matches[1]);
     exit;
 }
 

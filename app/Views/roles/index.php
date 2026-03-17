@@ -39,10 +39,11 @@ ob_start();
     <div class="roles-grid">
         <?php foreach ($roles as $role): ?>
         <?php
-        $isBase = in_array($role['nombre'], ['admin', 'coordinador', 'supervisor', 'asesor']);
+        $isBase = in_array($role['nombre'], ['admin', 'gerente', 'coordinador', 'supervisor', 'asesor']);
         $colorMap = [
             'admin' => '#dc2626',
-            'coordinador' => '#7c3aed',
+            'gerente' => '#7c3aed',
+            'coordinador' => '#2563eb',
             'supervisor' => '#059669',
             'asesor' => '#d97706'
         ];

@@ -39,6 +39,7 @@ ob_start();
     </div>
 
     <form action="<?= BASE_URL ?>/roles" method="POST">
+        <?= \App\Services\CsrfService::field() ?>
         <div class="form-grid">
             <!-- Info del rol -->
             <div class="form-card">
