@@ -43,7 +43,7 @@ class ReportController
         $user = $_SESSION['user'];
         $pdo = Database::getConnection();
 
-        $isAdmin = in_array($user['rol'] ?? '', ['admin', 'gerente', 'coordinador'], true);
+        $isAdmin = AuthService::canManageAllCampaigns($user);
 
         if ($isAdmin) {
             $stmt = $pdo->query("SELECT id, nombre FROM campaigns WHERE estado = 'activa' ORDER BY nombre");
@@ -710,7 +710,7 @@ class ReportController
         AuthService::requirePermission('reports.view');
 
         $user = $_SESSION['user'];
-        $isAdmin = in_array($user['rol'] ?? '', ['admin', 'gerente', 'coordinador'], true);
+        $isAdmin = AuthService::canManageAllCampaigns($user);
         if (!$isAdmin) {
             header('Location: ' . BASE_URL . '/reports');
             exit;

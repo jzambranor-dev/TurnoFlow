@@ -19,9 +19,12 @@ class RoleController
 
         $stmt = $pdo->query("
             SELECT r.*,
-                   (SELECT COUNT(*) FROM users u WHERE u.rol_id = r.id) as total_users,
-                   (SELECT COUNT(*) FROM role_permissions rp WHERE rp.rol_id = r.id) as total_permissions
+                   COUNT(DISTINCT u.id) as total_users,
+                   COUNT(DISTINCT rp.permission_id) as total_permissions
             FROM roles r
+            LEFT JOIN users u ON u.rol_id = r.id
+            LEFT JOIN role_permissions rp ON rp.rol_id = r.id
+            GROUP BY r.id
             ORDER BY r.nombre
         ");
         $roles = $stmt->fetchAll();

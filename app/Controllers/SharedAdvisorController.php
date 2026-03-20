@@ -77,7 +77,7 @@ class SharedAdvisorController
         }
 
         // Cargar otras campañas accesibles por el usuario
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $stmt = $pdo->prepare("
                 SELECT id, nombre FROM campaigns
                 WHERE estado = 'activa' AND id <> :cid
@@ -229,7 +229,7 @@ class SharedAdvisorController
         }
 
         // Verificar permisos
-        if (!$this->canManageAllCampaigns($user) && (int)$shared['supervisor_id'] !== (int)$user['id']) {
+        if (!AuthService::canManageAllCampaigns($user) && (int)$shared['supervisor_id'] !== (int)$user['id']) {
             header('Location: ' . BASE_URL . '/campaigns');
             exit;
         }
@@ -253,12 +253,8 @@ class SharedAdvisorController
 
     private function canAccessCampaign(PDO $pdo, array $campaign, array $user): bool
     {
-        if ($this->canManageAllCampaigns($user)) return true;
+        if (AuthService::canManageAllCampaigns($user)) return true;
         return (int)$campaign['supervisor_id'] === (int)$user['id'];
     }
 
-    private function canManageAllCampaigns(array $user): bool
-    {
-        return in_array($user['rol'] ?? '', ['admin', 'gerente', 'coordinador'], true);
-    }
 }

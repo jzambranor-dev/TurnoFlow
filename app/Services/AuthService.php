@@ -241,4 +241,14 @@ class AuthService
     {
         return isset($_SESSION['user']);
     }
+
+    /**
+     * Verificar si el usuario puede gestionar todas las campanas (admin, gerente, coordinador)
+     */
+    public static function canManageAllCampaigns(?array $user = null): bool
+    {
+        $user = $user ?? $_SESSION['user'] ?? null;
+        if (!$user) return false;
+        return in_array($user['rol'] ?? '', ['admin', 'gerente', 'coordinador'], true);
+    }
 }

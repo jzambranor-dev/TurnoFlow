@@ -26,7 +26,7 @@ class AdvisorController
             ? (int)$_GET['campaign_id'] : null;
 
         // Cargar lista de campañas para el filtro
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $campaignsForFilter = $pdo->query("SELECT id, nombre FROM campaigns ORDER BY nombre")->fetchAll();
         } else {
             $stmtCf = $pdo->prepare("SELECT id, nombre FROM campaigns WHERE supervisor_id = :sid ORDER BY nombre");
@@ -38,7 +38,7 @@ class AdvisorController
         $where = [];
         $params = [];
 
-        if (!$this->canManageAllCampaigns($user)) {
+        if (!AuthService::canManageAllCampaigns($user)) {
             $where[] = "c.supervisor_id = :supervisor_id";
             $params[':supervisor_id'] = $user['id'];
         }
@@ -82,7 +82,7 @@ class AdvisorController
         $pdo = Database::getConnection();
 
         // Supervisores solo ven sus campañas
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $stmt = $pdo->query("SELECT id, nombre FROM campaigns WHERE estado = 'activa' ORDER BY nombre");
         } else {
             $stmt = $pdo->prepare("
@@ -225,13 +225,13 @@ class AdvisorController
         }
 
         // Supervisores solo pueden editar asesores de sus campañas
-        if (!$this->canManageAllCampaigns($user) && (int)$advisor['supervisor_id'] !== (int)$user['id']) {
+        if (!AuthService::canManageAllCampaigns($user) && (int)$advisor['supervisor_id'] !== (int)$user['id']) {
             header('Location: ' . BASE_URL . '/advisors');
             exit;
         }
 
         // Supervisores solo ven sus campañas
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $stmt = $pdo->query("SELECT id, nombre FROM campaigns WHERE estado = 'activa' ORDER BY nombre");
         } else {
             $stmt = $pdo->prepare("
@@ -384,7 +384,7 @@ class AdvisorController
         $pdo = Database::getConnection();
 
         // Cargar campañas según permisos
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $campaigns = $pdo->query("SELECT id, nombre FROM campaigns WHERE estado = 'activa' ORDER BY nombre")->fetchAll();
         } else {
             $stmt = $pdo->prepare("SELECT id, nombre FROM campaigns WHERE estado = 'activa' AND supervisor_id = :sid ORDER BY nombre");
@@ -451,7 +451,7 @@ class AdvisorController
         }
 
         // Verificar acceso a la campaña
-        if (!$this->canManageAllCampaigns($user)) {
+        if (!AuthService::canManageAllCampaigns($user)) {
             $stmt = $pdo->prepare("SELECT id FROM campaigns WHERE id = :id AND supervisor_id = :sid");
             $stmt->execute([':id' => $campaignId, ':sid' => $user['id']]);
             if (!$stmt->fetchColumn()) {
@@ -681,14 +681,9 @@ class AdvisorController
         $_SESSION['flash_error'] = $message;
     }
 
-    private function canManageAllCampaigns(array $user): bool
-    {
-        return in_array($user['rol'] ?? '', ['admin', 'gerente', 'coordinador'], true);
-    }
-
     private function canAccessAdvisor(\PDO $pdo, int $advisorId, array $user): bool
     {
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             return true;
         }
 

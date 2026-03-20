@@ -19,7 +19,7 @@ class CampaignController
         $pdo = Database::getConnection();
 
         // Supervisores solo ven sus campañas
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $stmt = $pdo->query("
                 SELECT c.*, u.nombre || ' ' || u.apellido as supervisor_nombre,
                        (SELECT COUNT(*) FROM advisors a WHERE a.campaign_id = c.id AND a.estado = 'activo') as total_asesores
@@ -45,11 +45,6 @@ class CampaignController
         $currentPage = 'campaigns';
 
         include APP_PATH . '/Views/campaigns/index.php';
-    }
-
-    private function canManageAllCampaigns(array $user): bool
-    {
-        return in_array($user['rol'] ?? '', ['admin', 'gerente', 'coordinador'], true);
     }
 
     public function create(): void

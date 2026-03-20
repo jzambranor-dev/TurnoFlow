@@ -26,7 +26,7 @@ class ScheduleBuilder
     private array $assignments;     // [fecha][hora] => [advisor_ids]
     private array $advisorSchedule; // [advisor_id][fecha] => [horas]
     private array $advisorMonthHours; // [advisor_id] => total horas mes
-    private array $diasLibres;      // [advisor_id] => [fechas]
+    private array $diasLibres;      // [advisor_id] => [fecha => true]
     private array $veladaEligible;
     private array $activityAssignments;
     private array $reservaNocturna;   // [fecha] => horas nocturnas que necesitan VPN
@@ -352,7 +352,7 @@ class ScheduleBuilder
                 $horasEnDia = $this->advisorSchedule[$id][$f] ?? [];
                 if (empty($horasEnDia)) {
                     // El asesor no trabajó ese día = día libre
-                    $this->diasLibres[$id][] = $f;
+                    $this->diasLibres[$id][$f] = true;
                 }
             }
         }
@@ -459,8 +459,8 @@ class ScheduleBuilder
             if (!isset($this->advisorSchedule[$advId][$fecha])) {
                 $this->advisorSchedule[$advId][$fecha] = [];
             }
-            if (!in_array($hora, $this->advisorSchedule[$advId][$fecha], true)) {
-                $this->advisorSchedule[$advId][$fecha][] = $hora;
+            if (!isset($this->advisorSchedule[$advId][$fecha][$hora])) {
+                $this->advisorSchedule[$advId][$fecha][$hora] = true;
                 $this->advisorMonthHours[$advId] = ($this->advisorMonthHours[$advId] ?? 0) + 1;
             }
         }
@@ -529,7 +529,7 @@ class ScheduleBuilder
             if ($fecha < $fromDate) continue; // Solo insertar fechas nuevas
 
             foreach ($horasData as $hora => $advisorIds) {
-                foreach ($advisorIds as $advId) {
+                foreach ($advisorIds as $advId => $_partial) {
                     $horasHoy = count($this->advisorSchedule[$advId][$fecha] ?? []);
                     $esExtra = $horasHoy > 8;
 
@@ -633,7 +633,7 @@ class ScheduleBuilder
                 // Guarda estricta: respetar máximo de libres por día según dimensionamiento
                 if ($libresEnFecha[$fecha] >= $maxLibresDia[$fecha]) continue;
 
-                $this->diasLibres[$advisorId][] = $fecha;
+                $this->diasLibres[$advisorId][$fecha] = true;
                 $libresEnFecha[$fecha]++;
             }
         }
@@ -680,12 +680,12 @@ class ScheduleBuilder
             $pos = ($offset + $i * $interval) % $poolSize;
             $fecha = $pool[$pos];
 
-            if (in_array($fecha, $this->diasLibres[$advisorId], true)) continue;
+            if (isset($this->diasLibres[$advisorId][$fecha])) continue;
 
             // Guarda estricta: no exceder máximo de libres del dimensionamiento
             if ($libresEnFecha[$fecha] >= ($maxLibresDia[$fecha] ?? 0)) continue;
 
-            $this->diasLibres[$advisorId][] = $fecha;
+            $this->diasLibres[$advisorId][$fecha] = true;
             $libresEnFecha[$fecha]++;
             $asignados++;
         }
@@ -694,11 +694,11 @@ class ScheduleBuilder
         if ($asignados < $cantidad) {
             for ($i = 0; $i < $poolSize && $asignados < $cantidad; $i++) {
                 $fecha = $pool[($i + $offset) % $poolSize];
-                if (in_array($fecha, $this->diasLibres[$advisorId], true)) continue;
+                if (isset($this->diasLibres[$advisorId][$fecha])) continue;
 
                 if ($libresEnFecha[$fecha] >= ($maxLibresDia[$fecha] ?? 0)) continue;
 
-                $this->diasLibres[$advisorId][] = $fecha;
+                $this->diasLibres[$advisorId][$fecha] = true;
                 $libresEnFecha[$fecha]++;
                 $asignados++;
             }
@@ -727,10 +727,7 @@ class ScheduleBuilder
             $candidato = $this->veladaEligible[$asesorIdx];
 
             // Si tiene día libre, cancelarlo — la velada tiene prioridad
-            $libreIdx = array_search($fecha, $this->diasLibres[$candidato] ?? [], true);
-            if ($libreIdx !== false) {
-                array_splice($this->diasLibres[$candidato], $libreIdx, 1);
-            }
+            unset($this->diasLibres[$candidato][$fecha]);
 
             $this->veladaMap[$fecha] = $candidato;
         }
@@ -739,7 +736,7 @@ class ScheduleBuilder
             $reqDia = $this->requirements[$fecha] ?? [];
             $veladaId = $this->veladaMap[$fecha];
             if (!$veladaId) continue;
-            if (in_array($fecha, $this->diasLibres[$veladaId], true)) continue;
+            if (isset($this->diasLibres[$veladaId][$fecha])) continue;
 
             // Turno fijo de velada: madrugada (0-6) + transición (22-23)
             // Total: 9 horas con 16h de descanso continuo entre bloques
@@ -791,7 +788,7 @@ class ScheduleBuilder
         $disponibles = [];
         foreach ($this->advisors as $advId => $adv) {
             if ($advId === $veladaId) continue;
-            if (in_array($fecha, $this->diasLibres[$advId] ?? [], true)) continue;
+            if (isset($this->diasLibres[$advId][$fecha])) continue;
             $horasYa = count($this->advisorSchedule[$advId][$fecha] ?? []);
             if ($horasYa >= $adv['max_horas_dia']) continue;
             $disponibles[$advId] = $adv;
@@ -811,15 +808,18 @@ class ScheduleBuilder
             if (empty($deficit)) break;
 
             // Ordenar disponibles por fairness ratio (menor ratio = más infrautilizado)
-            uasort($disponibles, function ($a, $b) {
-                $ra = $this->getFairnessRatio($a['id']);
-                $rb = $this->getFairnessRatio($b['id']);
-                return $ra <=> $rb;
+            // Pre-calcular ratios para evitar recalcular en cada comparación
+            $ratiosCache = [];
+            foreach ($disponibles as $advId => $adv) {
+                $ratiosCache[$advId] = $this->getFairnessRatio($advId);
+            }
+            uasort($disponibles, function ($a, $b) use ($ratiosCache) {
+                return $ratiosCache[$a['id']] <=> $ratiosCache[$b['id']];
             });
 
             $asignado = false;
             foreach ($disponibles as $advId => $adv) {
-                $horasHoy = $this->advisorSchedule[$advId][$fecha] ?? [];
+                $horasHoy = array_keys($this->advisorSchedule[$advId][$fecha] ?? []);
                 $cantidadHoy = count($horasHoy);
                 if ($cantidadHoy >= $adv['max_horas_dia']) continue;
 
@@ -876,8 +876,8 @@ class ScheduleBuilder
         for ($h = $maxH + 1; $h <= $adv['hora_fin_contrato'] && count($nuevas) < $capacidad; $h++) {
             if (!$this->puedeTrabajarHora($adv, $h)) break;
             if ($this->esHoraNocturna($h) && !$adv['tiene_vpn']) break;
-            if (in_array($advId, $this->assignments[$fecha][$h] ?? [], true)) break;
-            if (in_array($h, $this->advisorSchedule[$advId][$fecha] ?? [], true)) break;
+            if (isset($this->assignments[$fecha][$h][$advId])) break;
+            if (isset($this->advisorSchedule[$advId][$fecha][$h])) break;
             if (isset($deficit[$h]) && $deficit[$h] > 0) {
                 $nuevas[] = $h;
             } else {
@@ -889,8 +889,8 @@ class ScheduleBuilder
         for ($h = $minH - 1; $h >= $adv['hora_inicio_contrato'] && count($nuevas) < $capacidad; $h--) {
             if (!$this->puedeTrabajarHora($adv, $h)) break;
             if ($this->esHoraNocturna($h) && !$adv['tiene_vpn']) break;
-            if (in_array($advId, $this->assignments[$fecha][$h] ?? [], true)) break;
-            if (in_array($h, $this->advisorSchedule[$advId][$fecha] ?? [], true)) break;
+            if (isset($this->assignments[$fecha][$h][$advId])) break;
+            if (isset($this->advisorSchedule[$advId][$fecha][$h])) break;
             if (isset($deficit[$h]) && $deficit[$h] > 0) {
                 $nuevas[] = $h;
             } else {
@@ -933,8 +933,8 @@ class ScheduleBuilder
             for ($h = $inicio; $h <= $hMax && count($bloque) < $capacidad; $h++) {
                 if (!$this->puedeTrabajarHora($adv, $h)) break;
                 if ($this->esHoraNocturna($h) && !$adv['tiene_vpn']) break;
-                if (in_array($advId, $this->assignments[$fecha][$h] ?? [], true)) break;
-                if (in_array($h, $this->advisorSchedule[$advId][$fecha] ?? [], true)) break;
+                if (isset($this->assignments[$fecha][$h][$advId])) break;
+                if (isset($this->advisorSchedule[$advId][$fecha][$h])) break;
 
                 if (isset($deficit[$h]) && $deficit[$h] > 0) {
                     $bloque[] = $h;
@@ -962,8 +962,8 @@ class ScheduleBuilder
                 for ($h = $inicio; $h <= $hMax && count($bloque) < $capacidad; $h++) {
                     if (!$this->puedeTrabajarHora($adv, $h)) break;
                     if ($this->esHoraNocturna($h) && !$adv['tiene_vpn']) break;
-                    if (in_array($advId, $this->assignments[$fecha][$h] ?? [], true)) break;
-                    if (in_array($h, $this->advisorSchedule[$advId][$fecha] ?? [], true)) break;
+                    if (isset($this->assignments[$fecha][$h][$advId])) break;
+                    if (isset($this->advisorSchedule[$advId][$fecha][$h])) break;
                     if (isset($deficit[$h]) && $deficit[$h] > 0) {
                         $bloque[] = $h;
                         $score += $deficit[$h] * 10;
@@ -992,8 +992,8 @@ class ScheduleBuilder
         // Empezar desde H23 hacia abajo
         for ($h = min(23, $adv['hora_fin_contrato']); $h >= $adv['hora_inicio_contrato'] && count($bloque) < $capacidad; $h--) {
             if (!$this->puedeTrabajarHora($adv, $h)) continue;
-            if (in_array($advId, $this->assignments[$fecha][$h] ?? [], true)) break;
-            if (in_array($h, $this->advisorSchedule[$advId][$fecha] ?? [], true)) break;
+            if (isset($this->assignments[$fecha][$h][$advId])) break;
+            if (isset($this->advisorSchedule[$advId][$fecha][$h])) break;
             if (isset($deficit[$h]) && $deficit[$h] > 0) {
                 $bloque[] = $h;
             } elseif (!empty($bloque)) {
@@ -1031,8 +1031,9 @@ class ScheduleBuilder
 
             foreach ($fechas as $fecha) {
                 foreach ($this->advisors as $advId => $adv) {
-                    $horas = $this->advisorSchedule[$advId][$fecha] ?? [];
-                    if (empty($horas)) continue;
+                    $horasMap = $this->advisorSchedule[$advId][$fecha] ?? [];
+                    if (empty($horasMap)) continue;
+                    $horas = array_keys($horasMap);
 
                     $cantHoras = count($horas);
                     if ($cantHoras >= $this->jornadaMinima) continue;
@@ -1075,7 +1076,7 @@ class ScheduleBuilder
 
                     // Segunda ronda: swap con asesores que tienen horas de sobra
                     // Solo hacia adelante y atrás del bloque actual, manteniendo continuidad
-                    $horasActualizadas = $this->advisorSchedule[$advId][$fecha] ?? [];
+                    $horasActualizadas = array_keys($this->advisorSchedule[$advId][$fecha] ?? []);
                     sort($horasActualizadas);
                     $maxH2 = !empty($horasActualizadas) ? max($horasActualizadas) : $maxH;
                     $minH2 = !empty($horasActualizadas) ? min($horasActualizadas) : $minH;
@@ -1116,14 +1117,14 @@ class ScheduleBuilder
                     }
 
                     // Paso 2: no se pudo completar → quitar horas y redistribuir
-                    $horasAQuitar = $this->advisorSchedule[$advId][$fecha] ?? [];
+                    $horasAQuitar = array_keys($this->advisorSchedule[$advId][$fecha] ?? []);
                     foreach ($horasAQuitar as $h) {
                         $this->quitarAsignacion($fecha, $advId, $h);
                     }
 
                     // Darle libre
-                    if (!in_array($fecha, $this->diasLibres[$advId], true)) {
-                        $this->diasLibres[$advId][] = $fecha;
+                    if (!isset($this->diasLibres[$advId][$fecha])) {
+                        $this->diasLibres[$advId][$fecha] = true;
                     }
 
                     // Redistribuir esas horas a otros asesores
@@ -1156,9 +1157,9 @@ class ScheduleBuilder
         $mejorId = null;
         $mejorScore = -1.0;
 
-        foreach ($asignados as $advId) {
+        foreach ($asignados as $advId => $_) {
             if ($advId === $excluirId) continue;
-            $horasVictima = $this->advisorSchedule[$advId][$fecha] ?? [];
+            $horasVictima = array_keys($this->advisorSchedule[$advId][$fecha] ?? []);
             $cantHoras = count($horasVictima);
             if ($cantHoras - 1 < $this->jornadaMinima) continue;
 
@@ -1190,7 +1191,7 @@ class ScheduleBuilder
     {
         foreach ($fechas as $fecha) {
             foreach ($this->advisors as $advId => $adv) {
-                $horas = $this->advisorSchedule[$advId][$fecha] ?? [];
+                $horas = array_keys($this->advisorSchedule[$advId][$fecha] ?? []);
                 if (count($horas) < 3) continue;
                 sort($horas);
 
@@ -1240,22 +1241,12 @@ class ScheduleBuilder
     private function quitarAsignacion(string $fecha, int $advisorId, int $hora): void
     {
         // Quitar de assignments[fecha][hora]
-        if (isset($this->assignments[$fecha][$hora])) {
-            $idx = array_search($advisorId, $this->assignments[$fecha][$hora], true);
-            if ($idx !== false) {
-                array_splice($this->assignments[$fecha][$hora], $idx, 1);
-            }
-        }
+        unset($this->assignments[$fecha][$hora][$advisorId]);
 
         // Quitar de advisorSchedule[advisor][fecha]
-        if (isset($this->advisorSchedule[$advisorId][$fecha])) {
-            $idx = array_search($hora, $this->advisorSchedule[$advisorId][$fecha], true);
-            if ($idx !== false) {
-                array_splice($this->advisorSchedule[$advisorId][$fecha], $idx, 1);
-            }
-            if (empty($this->advisorSchedule[$advisorId][$fecha])) {
-                unset($this->advisorSchedule[$advisorId][$fecha]);
-            }
+        unset($this->advisorSchedule[$advisorId][$fecha][$hora]);
+        if (empty($this->advisorSchedule[$advisorId][$fecha])) {
+            unset($this->advisorSchedule[$advisorId][$fecha]);
         }
 
         // Decrementar horas mensuales
@@ -1272,8 +1263,8 @@ class ScheduleBuilder
 
         foreach ($this->advisors as $advId => $adv) {
             if ($advId === $excluirId) continue;
-            if (in_array($fecha, $this->diasLibres[$advId] ?? [], true)) continue;
-            if (in_array($advId, $this->assignments[$fecha][$hora] ?? [], true)) continue;
+            if (isset($this->diasLibres[$advId][$fecha])) continue;
+            if (isset($this->assignments[$fecha][$hora][$advId])) continue;
             if (!$this->puedeTrabajarHora($adv, $hora)) continue;
             if ($this->esHoraNocturna($hora) && !$adv['tiene_vpn']) continue;
 
@@ -1292,7 +1283,7 @@ class ScheduleBuilder
             $score = (1.0 - $this->getFairnessRatio($advId)) * 1000;
 
             $horasExistentes = $this->advisorSchedule[$advId][$fecha] ?? [];
-            if (in_array($hora - 1, $horasExistentes, true) || in_array($hora + 1, $horasExistentes, true)) {
+            if (isset($horasExistentes[$hora - 1]) || isset($horasExistentes[$hora + 1])) {
                 $score += 200;
             }
 
@@ -1336,16 +1327,16 @@ class ScheduleBuilder
                             $esVelada = isset($this->veladaMap[$fecha]) && $this->veladaMap[$fecha] === $advId;
                             if ($esVelada && !in_array($hora, $this->horasVelada, true) && !in_array($hora, $this->horasTransicion, true)) continue;
 
-                            $estaLibre = in_array($fecha, $this->diasLibres[$advId] ?? [], true);
+                            $estaLibre = isset($this->diasLibres[$advId][$fecha]);
 
                             // Pasada 1: respetar días libres
                             // Pasada 2: cancelar días libres
                             // Pasada 3: además relajar VPN para horas 22-23
                             if ($pasada <= 1 && $estaLibre) continue;
 
-                            if (in_array($advId, $this->assignments[$fecha][$hora] ?? [], true)) continue;
+                            if (isset($this->assignments[$fecha][$hora][$advId])) continue;
                             // Verificar si la hora ya está ocupada externamente (otra campaña)
-                            if (in_array($hora, $this->advisorSchedule[$advId][$fecha] ?? [], true)) continue;
+                            if (isset($this->advisorSchedule[$advId][$fecha][$hora])) continue;
                             if (!$this->puedeTrabajarHora($adv, $hora)) continue;
 
                             // VPN: en pasada 3, solo exigir VPN para madrugada real (0-6)
@@ -1364,10 +1355,10 @@ class ScheduleBuilder
                             $esAdyacente = false;
                             $creariaMultiGap = false;
                             if (!empty($horasExist)) {
-                                $esAdyacente = in_array($hora - 1, $horasExist, true) || in_array($hora + 1, $horasExist, true);
+                                $esAdyacente = isset($horasExist[$hora - 1]) || isset($horasExist[$hora + 1]);
                                 if (!$esAdyacente) {
                                     // Verificar si crearía más de 1 gap (inaceptable)
-                                    $testHoras = array_merge($horasExist, [$hora]);
+                                    $testHoras = array_merge(array_keys($horasExist), [$hora]);
                                     sort($testHoras);
                                     $gaps = 0;
                                     for ($g = 1; $g < count($testHoras); $g++) {
@@ -1401,10 +1392,7 @@ class ScheduleBuilder
 
                         if ($mejor !== null) {
                             // Si estaba libre, cancelar su día libre
-                            $idx = array_search($fecha, $this->diasLibres[$mejor] ?? [], true);
-                            if ($idx !== false) {
-                                array_splice($this->diasLibres[$mejor], $idx, 1);
-                            }
+                            unset($this->diasLibres[$mejor][$fecha]);
                             $this->registrarAsignacion($fecha, $mejor, $hora);
                         }
                     }
@@ -1464,20 +1452,20 @@ class ScheduleBuilder
 
     private function registrarAsignacion(string $fecha, int $advisorId, int $hora): bool
     {
-        if (in_array($advisorId, $this->assignments[$fecha][$hora] ?? [], true)) return false;
+        if (isset($this->assignments[$fecha][$hora][$advisorId])) return false;
 
         // Verificar si la hora ya está ocupada por un compromiso externo (otra campaña)
         // loadSharedOutCommitments pre-carga horas en advisorSchedule sin agregarlas a assignments
-        if (in_array($hora, $this->advisorSchedule[$advisorId][$fecha] ?? [], true)) return false;
+        if (isset($this->advisorSchedule[$advisorId][$fecha][$hora])) return false;
 
         if (!isset($this->assignments[$fecha])) $this->assignments[$fecha] = [];
         if (!isset($this->assignments[$fecha][$hora])) $this->assignments[$fecha][$hora] = [];
-        $this->assignments[$fecha][$hora][] = $advisorId;
+        $this->assignments[$fecha][$hora][$advisorId] = true;
 
         if (!isset($this->advisorSchedule[$advisorId][$fecha])) {
             $this->advisorSchedule[$advisorId][$fecha] = [];
         }
-        $this->advisorSchedule[$advisorId][$fecha][] = $hora;
+        $this->advisorSchedule[$advisorId][$fecha][$hora] = true;
 
         $this->advisorMonthHours[$advisorId] = ($this->advisorMonthHours[$advisorId] ?? 0) + 1;
         return true;
@@ -1488,7 +1476,7 @@ class ScheduleBuilder
         $count = 0;
         foreach ($this->advisors as $advId => $adv) {
             if (!$adv['tiene_vpn']) continue;
-            if (in_array($fecha, $this->diasLibres[$advId] ?? [], true)) continue;
+            if (isset($this->diasLibres[$advId][$fecha])) continue;
             $horasHoy = count($this->advisorSchedule[$advId][$fecha] ?? []);
             if ($horasHoy < $adv['max_horas_dia']) $count++;
         }
@@ -1536,7 +1524,7 @@ class ScheduleBuilder
                 if (!$esPropio) continue;
             }
 
-            if (in_array($fecha, $this->diasLibres[$advisorId] ?? [], true)) continue;
+            if (isset($this->diasLibres[$advisorId][$fecha])) continue;
 
             foreach ($assignments as $asg) {
                 if (!in_array($dow, $asg['dias_semana'], true)) continue;
@@ -1575,8 +1563,9 @@ class ScheduleBuilder
             $dow = $dow_cache[$fecha];
 
             foreach ($this->advisors as $advId => $adv) {
-                $horas = $this->advisorSchedule[$advId][$fecha] ?? [];
-                if (empty($horas)) continue;
+                $horasMap = $this->advisorSchedule[$advId][$fecha] ?? [];
+                if (empty($horasMap)) continue;
+                $horas = array_keys($horasMap);
                 if (count($horas) > $umbralTrivial) continue;
 
                 // No tocar velada
@@ -1608,7 +1597,7 @@ class ScheduleBuilder
                         if (!$cubreHora) continue;
 
                         // ¿Ya está asignado en esa hora en esta campaña?
-                        $yaAsignado = in_array($sharedId, $this->assignments[$fecha][$hora] ?? [], true);
+                        $yaAsignado = isset($this->assignments[$fecha][$hora][$sharedId]);
 
                         if ($yaAsignado) {
                             // El compartido ya cubre esta hora — simplemente quitar al propio
@@ -1620,7 +1609,7 @@ class ScheduleBuilder
                         } else {
                             // Compartido disponible — podemos reemplazar: quitar propio, agregar compartido
                             // Verificar que no está ya ocupado en otra campaña a esa hora
-                            $ocupadoOtraCampaña = in_array($hora, $this->advisorSchedule[$sharedId][$fecha] ?? [], true);
+                            $ocupadoOtraCampaña = isset($this->advisorSchedule[$sharedId][$fecha][$hora]);
                             if ($ocupadoOtraCampaña) continue;
 
                             $compartidoEncontrado = $sharedId;
@@ -1648,8 +1637,8 @@ class ScheduleBuilder
                 }
 
                 // Dar libre al asesor propio en este día
-                if (!in_array($fecha, $this->diasLibres[$advId], true)) {
-                    $this->diasLibres[$advId][] = $fecha;
+                if (!isset($this->diasLibres[$advId][$fecha])) {
+                    $this->diasLibres[$advId][$fecha] = true;
                 }
             }
         }
@@ -1785,8 +1774,8 @@ class ScheduleBuilder
             if (!isset($this->advisorSchedule[$advId][$fecha])) {
                 $this->advisorSchedule[$advId][$fecha] = [];
             }
-            if (!in_array($hora, $this->advisorSchedule[$advId][$fecha], true)) {
-                $this->advisorSchedule[$advId][$fecha][] = $hora;
+            if (!isset($this->advisorSchedule[$advId][$fecha][$hora])) {
+                $this->advisorSchedule[$advId][$fecha][$hora] = true;
                 // Contar horas externas por separado (no inflar advisorMonthHours)
                 $this->externalHours[$advId] = ($this->externalHours[$advId] ?? 0) + 1;
             }
@@ -1916,7 +1905,7 @@ class ScheduleBuilder
     {
         foreach ($fechas as $fecha) {
             foreach ($this->advisors as $advId => $adv) {
-                $horasTrabajo = $this->advisorSchedule[$advId][$fecha] ?? [];
+                $horasTrabajo = array_keys($this->advisorSchedule[$advId][$fecha] ?? []);
                 if (count($horasTrabajo) < 4) continue; // No dar break si trabaja pocas horas
 
                 sort($horasTrabajo);
@@ -1961,38 +1950,45 @@ class ScheduleBuilder
             ON CONFLICT (advisor_id, fecha, hora) DO NOTHING
         ");
 
-        $count = 0;
-        foreach ($this->assignments as $fecha => $horasData) {
-            foreach ($horasData as $hora => $advisorIds) {
-                foreach ($advisorIds as $advId) {
-                    $horasHoy = count($this->advisorSchedule[$advId][$fecha] ?? []);
-                    $esExtra = $horasHoy > 8;
+        $this->pdo->beginTransaction();
+        try {
+            $count = 0;
+            foreach ($this->assignments as $fecha => $horasData) {
+                foreach ($horasData as $hora => $advisorIds) {
+                    foreach ($advisorIds as $advId => $_) {
+                        $horasHoy = count($this->advisorSchedule[$advId][$fecha] ?? []);
+                        $esExtra = $horasHoy > 8;
 
-                    // Verificar si esta hora es un break para este asesor
-                    $esBreak = isset($this->breakAssignments[$advId][$fecha])
-                        && $this->breakAssignments[$advId][$fecha] === $hora;
+                        // Verificar si esta hora es un break para este asesor
+                        $esBreak = isset($this->breakAssignments[$advId][$fecha])
+                            && $this->breakAssignments[$advId][$fecha] === $hora;
 
-                    if ($esBreak) {
-                        $tipo = 'break';
-                    } else {
-                        $tipo = $this->esHoraNocturna($hora) ? 'nocturno' : ($esExtra ? 'extra' : 'normal');
+                        if ($esBreak) {
+                            $tipo = 'break';
+                        } else {
+                            $tipo = $this->esHoraNocturna($hora) ? 'nocturno' : ($esExtra ? 'extra' : 'normal');
+                        }
+
+                        $stmt->execute([
+                            ':sid' => $this->scheduleId,
+                            ':aid' => $advId,
+                            ':cid' => $this->campaignId,
+                            ':fecha' => $fecha,
+                            ':hora' => $hora,
+                            ':tipo' => $tipo,
+                            ':extra' => $esBreak ? 'false' : ($esExtra ? 'true' : 'false'),
+                            ':mod' => $this->getModalidad($hora),
+                        ]);
+                        if ($stmt->rowCount() > 0) $count++;
                     }
-
-                    $stmt->execute([
-                        ':sid' => $this->scheduleId,
-                        ':aid' => $advId,
-                        ':cid' => $this->campaignId,
-                        ':fecha' => $fecha,
-                        ':hora' => $hora,
-                        ':tipo' => $tipo,
-                        ':extra' => $esBreak ? 'false' : ($esExtra ? 'true' : 'false'),
-                        ':mod' => $this->getModalidad($hora),
-                    ]);
-                    if ($stmt->rowCount() > 0) $count++;
                 }
             }
+            $this->pdo->commit();
+            return $count;
+        } catch (\Exception $e) {
+            $this->pdo->rollBack();
+            throw $e;
         }
-        return $count;
     }
 
     /**

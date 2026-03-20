@@ -25,26 +25,19 @@ class DashboardController
 
         // Stats comunes para admin, gerente, coordinador (jerarquia alta)
         if (in_array($rol, ['admin', 'gerente', 'coordinador'])) {
-            $stmt = $pdo->query("SELECT COUNT(*) FROM campaigns WHERE estado = 'activa'");
-            $stats['campaigns'] = $stmt->fetchColumn();
-
-            $stmt = $pdo->query("SELECT COUNT(*) FROM advisors WHERE estado = 'activo'");
-            $stats['advisors'] = $stmt->fetchColumn();
-
-            $stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE activo = true");
-            $stats['users'] = $stmt->fetchColumn();
-
-            $stmt = $pdo->query("SELECT COUNT(*) FROM schedules WHERE status = 'enviado'");
-            $stats['pending_approvals'] = $stmt->fetchColumn();
-
-            $stmt = $pdo->query("SELECT COUNT(*) FROM schedules WHERE status = 'aprobado'");
-            $stats['approved_schedules'] = $stmt->fetchColumn();
-
-            $stmt = $pdo->query("SELECT COUNT(*) FROM schedules WHERE status = 'rechazado'");
-            $stats['rejected_schedules'] = $stmt->fetchColumn();
-
-            $stmt = $pdo->query("SELECT COUNT(*) FROM schedules");
-            $stats['total_schedules'] = $stmt->fetchColumn();
+            // Una sola query para todos los contadores principales
+            $stmt = $pdo->query("
+                SELECT
+                    (SELECT COUNT(*) FROM campaigns WHERE estado = 'activa') as campaigns,
+                    (SELECT COUNT(*) FROM advisors WHERE estado = 'activo') as advisors,
+                    (SELECT COUNT(*) FROM users WHERE activo = true) as users,
+                    (SELECT COUNT(*) FROM schedules WHERE status = 'enviado') as pending_approvals,
+                    (SELECT COUNT(*) FROM schedules WHERE status = 'aprobado') as approved_schedules,
+                    (SELECT COUNT(*) FROM schedules WHERE status = 'rechazado') as rejected_schedules,
+                    (SELECT COUNT(*) FROM schedules) as total_schedules
+            ");
+            $counts = $stmt->fetch();
+            $stats = array_merge($stats, $counts);
 
             // Horarios pendientes de aprobación
             $stmt = $pdo->query("
@@ -59,13 +52,15 @@ class DashboardController
             ");
             $pendingSchedules = $stmt->fetchAll();
 
-            // Campañas recientes
+            // Campañas recientes con conteo via LEFT JOIN + GROUP BY
             $stmt = $pdo->query("
                 SELECT c.*, u.nombre || ' ' || u.apellido as supervisor_nombre,
-                       (SELECT COUNT(*) FROM advisors WHERE campaign_id = c.id AND estado = 'activo') as total_asesores
+                       COUNT(a.id) as total_asesores
                 FROM campaigns c
                 LEFT JOIN users u ON u.id = c.supervisor_id
+                LEFT JOIN advisors a ON a.campaign_id = c.id AND a.estado = 'activo'
                 WHERE c.estado = 'activa'
+                GROUP BY c.id, u.nombre, u.apellido
                 ORDER BY c.created_at DESC
                 LIMIT 5
             ");
@@ -102,12 +97,13 @@ class DashboardController
             $stmt->execute([':uid' => $user['id']]);
             $stats['approved_schedules'] = $stmt->fetchColumn();
 
-            // Mis campañas
+            // Mis campañas con conteo via LEFT JOIN + GROUP BY
             $stmt = $pdo->prepare("
-                SELECT c.*,
-                       (SELECT COUNT(*) FROM advisors WHERE campaign_id = c.id AND estado = 'activo') as total_asesores
+                SELECT c.*, COUNT(a.id) as total_asesores
                 FROM campaigns c
+                LEFT JOIN advisors a ON a.campaign_id = c.id AND a.estado = 'activo'
                 WHERE c.supervisor_id = :uid AND c.estado = 'activa'
+                GROUP BY c.id
                 ORDER BY c.nombre
             ");
             $stmt->execute([':uid' => $user['id']]);

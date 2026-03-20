@@ -78,9 +78,12 @@ ob_start();
                     Editar Permisos
                 </a>
                 <?php if (!$isBase): ?>
-                <a href="<?= BASE_URL ?>/roles/<?= $role['id'] ?>/delete" class="btn-action btn-delete" onclick="return confirm('¿Eliminar este rol?')">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                </a>
+                <form method="POST" action="<?= BASE_URL ?>/roles/<?= $role['id'] ?>/delete" style="display:inline" onsubmit="return confirm('¿Eliminar este rol?')">
+                    <?= \App\Services\CsrfService::field() ?>
+                    <button type="submit" class="btn-action btn-delete">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                    </button>
+                </form>
                 <?php endif; ?>
             </div>
         </div>

@@ -642,8 +642,8 @@ if ($method === 'POST' && preg_match('#^/roles/(\d+)$#', $uri, $matches)) {
     exit;
 }
 
-// Roles - eliminar
-if ($method === 'GET' && preg_match('#^/roles/(\d+)/delete$#', $uri, $matches)) {
+// Roles - eliminar (POST para seguridad)
+if ($method === 'POST' && preg_match('#^/roles/(\d+)/delete$#', $uri, $matches)) {
     require_once APP_PATH . '/Controllers/RoleController.php';
     $controller = new App\Controllers\RoleController();
     $controller->delete((int)$matches[1]);

@@ -26,7 +26,7 @@ class ScheduleController
         $role = $user['rol'] ?? '';
         $schedules = [];
 
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $stmt = $pdo->query("
                 SELECT s.*, c.nombre as campaign_nombre,
                        u.nombre || ' ' || u.apellido as generado_por_nombre
@@ -82,7 +82,7 @@ class ScheduleController
         $user = $_SESSION['user'];
         $pdo = Database::getConnection();
 
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $stmt = $pdo->query("SELECT id, nombre FROM campaigns WHERE estado = 'activa' ORDER BY nombre");
         } else {
             $stmt = $pdo->prepare("
@@ -149,7 +149,7 @@ class ScheduleController
 
         $pdo = Database::getConnection();
 
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $stmtCampaign = $pdo->prepare("
                 SELECT id, nombre
                 FROM campaigns
@@ -460,7 +460,7 @@ class ScheduleController
             exit;
         }
 
-        if (!$this->canManageAllCampaigns($user)) {
+        if (!AuthService::canManageAllCampaigns($user)) {
             if ($role === 'supervisor') {
                 if ((int)$schedule['supervisor_id'] !== (int)$user['id']) {
                     header('Location: ' . BASE_URL . '/schedules');
@@ -603,7 +603,7 @@ class ScheduleController
         $pdo = Database::getConnection();
 
         // Cargar importaciónes disponibles con info de campaña y asesores
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $stmt = $pdo->query("
                 SELECT si.id as import_id, si.campaign_id, si.periodo_anio, si.periodo_mes,
                        si.archivo_nombre, si.total_asesor_hora, si.imported_at,
@@ -668,7 +668,7 @@ class ScheduleController
         $pdo = Database::getConnection();
 
         // Obtener la importación validando permisos
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $stmt = $pdo->prepare("
                 SELECT si.*, c.nombre as campaign_nombre
                 FROM staffing_imports si
@@ -774,7 +774,7 @@ class ScheduleController
         $pdo = Database::getConnection();
 
         // Obtener la importación selecciónada validando permisos
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $stmt = $pdo->prepare("
                 SELECT si.*, c.nombre as campaign_nombre
                 FROM staffing_imports si
@@ -908,7 +908,7 @@ class ScheduleController
         $pdo = Database::getConnection();
 
         // Obtener la importación validando permisos
-        if ($this->canManageAllCampaigns($user)) {
+        if (AuthService::canManageAllCampaigns($user)) {
             $stmt = $pdo->prepare("
                 SELECT si.*, c.nombre as campaign_nombre
                 FROM staffing_imports si
@@ -1016,7 +1016,16 @@ class ScheduleController
     {
         AuthService::requirePermission('schedules.submit');
 
+        $user = $_SESSION['user'];
         $pdo = Database::getConnection();
+
+        // Validar ownership: supervisor solo puede enviar horarios de sus campañas
+        $schedule = $this->getScheduleWithOwnership($pdo, $id);
+        if (!$schedule || (!AuthService::canManageAllCampaigns($user) && (int)$schedule['supervisor_id'] !== (int)$user['id'])) {
+            $this->setFlash('error', 'Sin permisos para enviar este horario');
+            header('Location: ' . BASE_URL . '/schedules');
+            exit;
+        }
 
         $stmt = $pdo->prepare("
             UPDATE schedules SET status = 'enviado'
@@ -1033,8 +1042,15 @@ class ScheduleController
         AuthService::requirePermission('schedules.approve');
 
         $user = $_SESSION['user'];
-
         $pdo = Database::getConnection();
+
+        // Validar ownership
+        $schedule = $this->getScheduleWithOwnership($pdo, $id);
+        if (!$schedule || (!AuthService::canManageAllCampaigns($user) && (int)$schedule['supervisor_id'] !== (int)$user['id'])) {
+            $this->setFlash('error', 'Sin permisos para aprobar este horario');
+            header('Location: ' . BASE_URL . '/schedules');
+            exit;
+        }
 
         $stmt = $pdo->prepare("
             UPDATE schedules SET
@@ -1057,8 +1073,15 @@ class ScheduleController
         AuthService::requirePermission('schedules.approve');
 
         $user = $_SESSION['user'];
-
         $pdo = Database::getConnection();
+
+        // Validar ownership
+        $schedule = $this->getScheduleWithOwnership($pdo, $id);
+        if (!$schedule || (!AuthService::canManageAllCampaigns($user) && (int)$schedule['supervisor_id'] !== (int)$user['id'])) {
+            $this->setFlash('error', 'Sin permisos para rechazar este horario');
+            header('Location: ' . BASE_URL . '/schedules');
+            exit;
+        }
 
         $stmt = $pdo->prepare("
             UPDATE schedules SET status = 'rechazado'
@@ -1102,7 +1125,7 @@ class ScheduleController
         }
 
         // Verificar permisos
-        if (!$this->canManageAllCampaigns($user)) {
+        if (!AuthService::canManageAllCampaigns($user)) {
             if ((int)$schedule['supervisor_id'] !== (int)$user['id']) {
                 echo json_encode(['success' => false, 'error' => 'Sin permisos para editar este horario']);
                 exit;
@@ -1406,7 +1429,7 @@ class ScheduleController
         }
 
         // Verificar permisos
-        if (!$this->canManageAllCampaigns($user)) {
+        if (!AuthService::canManageAllCampaigns($user)) {
             $role = $user['rol'] ?? '';
             if ($role === 'supervisor' && (int)$schedule['supervisor_id'] !== (int)$user['id']) {
                 header('Location: ' . BASE_URL . '/schedules');
@@ -1532,7 +1555,7 @@ class ScheduleController
             exit;
         }
 
-        if (!$this->canManageAllCampaigns($user)) {
+        if (!AuthService::canManageAllCampaigns($user)) {
             if ((int)$schedule['supervisor_id'] !== (int)$user['id']) {
                 echo json_encode(['success' => false, 'error' => 'Sin permisos']);
                 exit;
@@ -1652,9 +1675,16 @@ class ScheduleController
         exit;
     }
 
-    private function canManageAllCampaigns(array $user): bool
+    private function getScheduleWithOwnership(\PDO $pdo, int $id): ?array
     {
-        return in_array($user['rol'] ?? '', ['admin', 'gerente', 'coordinador'], true);
+        $stmt = $pdo->prepare("
+            SELECT s.*, c.supervisor_id
+            FROM schedules s
+            JOIN campaigns c ON c.id = s.campaign_id
+            WHERE s.id = :id
+        ");
+        $stmt->execute([':id' => $id]);
+        return $stmt->fetch() ?: null;
     }
 
     private function syncMonthlyScheduleHeader(

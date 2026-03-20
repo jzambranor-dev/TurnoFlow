@@ -34,10 +34,11 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- TurnoFlow CSS -->
-    <link rel="stylesheet" href="/system-horario/TurnoFlow/public/css/app.css">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/css/app.css">
 
     <!-- TurnoFlow JS -->
-    <script src="/system-horario/TurnoFlow/public/js/table-paginator.js" defer></script>
+    <script src="<?= BASE_URL ?>/js/toast-loading.js"></script>
+    <script src="<?= BASE_URL ?>/js/table-paginator.js" defer></script>
 
     <?php if (!empty($extraStyles)) foreach ($extraStyles as $s) echo $s . "\n"; ?>
 </head>
@@ -161,7 +162,7 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
         </div>
 
         <footer class="footer">
-            &copy; <?= date('Y') ?> <strong>TurnoFlow</strong>. Plataforma de Gestión de Horarios. Desarrollado por Ricardo Romero.
+            &copy; <?= date('Y') ?> <strong>TurnoFlow</strong>.  Desarrollado por Ricardo.
         </footer>
     </main>
 
