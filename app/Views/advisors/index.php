@@ -1,6 +1,6 @@
 <?php
 /**
- * TurnoFlow - Vista de Asesores
+ * TurnoFlow - Vista de Asesores (server-side pagination)
  */
 
 $pageTitle = 'Asesores';
@@ -45,57 +45,49 @@ ob_start();
     <?php endif; ?>
 
     <!-- Stats Summary -->
-    <?php
-    $totalAdvisors = count($advisors);
-    $activos = count(array_filter($advisors, fn($a) => $a['estado'] === 'activo'));
-    $inactivos = count(array_filter($advisors, fn($a) => $a['estado'] === 'inactivo'));
-    $licencia = count(array_filter($advisors, fn($a) => $a['estado'] === 'licencia'));
-    $conVPN = count(array_filter($advisors, fn($a) => $a['tiene_vpn']));
-    $conExtras = count(array_filter($advisors, fn($a) => $a['permite_extras']));
-    ?>
     <div class="stats-row">
-        <div class="stat-mini stat-clickable" data-filter="all" title="Ver todos">
+        <a href="<?= BASE_URL ?>/advisors" class="stat-mini stat-clickable" title="Ver todos" style="text-decoration:none;color:inherit;">
             <div class="stat-icon" style="background: #eff6ff; color: #2563eb;">
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
             </div>
             <div class="stat-content">
-                <span class="stat-value"><?= $totalAdvisors ?></span>
+                <span class="stat-value"><?= $statsCounts['total'] ?? 0 ?></span>
                 <span class="stat-label">Total</span>
             </div>
-        </div>
-        <div class="stat-mini accent-green stat-clickable" data-filter="activo" title="Filtrar activos">
+        </a>
+        <a href="<?= BASE_URL ?>/advisors?estado=activo" class="stat-mini accent-green stat-clickable<?= ($filterEstado ?? '') === 'activo' ? ' stat-active-filter' : '' ?>" title="Filtrar activos" style="text-decoration:none;color:inherit;">
             <div class="stat-icon" style="background: #dcfce7; color: #16a34a;">
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
             </div>
             <div class="stat-content">
-                <span class="stat-value"><?= $activos ?></span>
+                <span class="stat-value"><?= $statsCounts['activos'] ?? 0 ?></span>
                 <span class="stat-label">Activos</span>
             </div>
-        </div>
-        <div class="stat-mini accent-red stat-clickable" data-filter="inactivo" title="Filtrar inactivos">
+        </a>
+        <a href="<?= BASE_URL ?>/advisors?estado=inactivo" class="stat-mini accent-red stat-clickable<?= ($filterEstado ?? '') === 'inactivo' ? ' stat-active-filter' : '' ?>" title="Filtrar inactivos" style="text-decoration:none;color:inherit;">
             <div class="stat-icon" style="background: #fee2e2; color: #dc2626;">
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>
             </div>
             <div class="stat-content">
-                <span class="stat-value"><?= $inactivos ?></span>
+                <span class="stat-value"><?= $statsCounts['inactivos'] ?? 0 ?></span>
                 <span class="stat-label">Inactivos</span>
             </div>
-        </div>
-        <div class="stat-mini accent-orange stat-clickable" data-filter="licencia" title="Filtrar licencia">
+        </a>
+        <a href="<?= BASE_URL ?>/advisors?estado=licencia" class="stat-mini accent-orange stat-clickable<?= ($filterEstado ?? '') === 'licencia' ? ' stat-active-filter' : '' ?>" title="Filtrar licencia" style="text-decoration:none;color:inherit;">
             <div class="stat-icon" style="background: #fef3c7; color: #d97706;">
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
             </div>
             <div class="stat-content">
-                <span class="stat-value"><?= $licencia ?></span>
+                <span class="stat-value"><?= $statsCounts['licencia'] ?? 0 ?></span>
                 <span class="stat-label">Licencia</span>
             </div>
-        </div>
+        </a>
         <div class="stat-mini accent-purple">
             <div class="stat-icon" style="background: #f3e8ff; color: #7c3aed;">
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
             </div>
             <div class="stat-content">
-                <span class="stat-value"><?= $conVPN ?></span>
+                <span class="stat-value"><?= $statsCounts['con_vpn'] ?? 0 ?></span>
                 <span class="stat-label">Con VPN</span>
             </div>
         </div>
@@ -104,36 +96,44 @@ ob_start();
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
             </div>
             <div class="stat-content">
-                <span class="stat-value"><?= $conExtras ?></span>
+                <span class="stat-value"><?= $statsCounts['con_extras'] ?? 0 ?></span>
                 <span class="stat-label">Extras</span>
             </div>
         </div>
     </div>
 
-    <!-- Filtro por Campaña -->
+    <!-- Filtros -->
     <div class="data-panel filter-panel">
         <form method="GET" action="<?= BASE_URL ?>/advisors" class="filter-form">
             <div class="filter-group">
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width:18px;height:18px;color:#64748b;flex-shrink:0;"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
                 <label for="campaign_filter" style="font-weight: 600; white-space: nowrap;">Campaña:</label>
                 <select name="campaign_id" id="campaign_filter" class="filter-select">
-                    <option value="">-- Todas las campañas --</option>
+                    <option value="">-- Todas --</option>
                     <?php foreach ($campaignsForFilter as $cf): ?>
                     <option value="<?= $cf['id'] ?>" <?= ($filterCampaignId ?? null) == $cf['id'] ? 'selected' : '' ?>>
                         <?= htmlspecialchars($cf['nombre']) ?>
                     </option>
                     <?php endforeach; ?>
                 </select>
+                <label for="estado_filter" style="font-weight: 600; white-space: nowrap;">Estado:</label>
+                <select name="estado" id="estado_filter" class="filter-select">
+                    <option value="">-- Todos --</option>
+                    <option value="activo" <?= ($filterEstado ?? '') === 'activo' ? 'selected' : '' ?>>Activo</option>
+                    <option value="inactivo" <?= ($filterEstado ?? '') === 'inactivo' ? 'selected' : '' ?>>Inactivo</option>
+                    <option value="licencia" <?= ($filterEstado ?? '') === 'licencia' ? 'selected' : '' ?>>Licencia</option>
+                </select>
+                <input type="text" name="q" placeholder="Buscar por nombre o cedula..." value="<?= htmlspecialchars($filterSearch ?? '') ?>" class="filter-select" style="min-width:200px;">
                 <button type="submit" class="btn btn-primary" style="padding: 8px 20px;">Filtrar</button>
-                <?php if (!empty($filterCampaignId)): ?>
+                <?php if ($filterCampaignId || $filterEstado || $filterSearch): ?>
                 <a href="<?= BASE_URL ?>/advisors" class="btn" style="padding: 8px 20px; background: #6b7280; color: #fff; border-radius: 6px; text-decoration: none;">Limpiar</a>
                 <?php endif; ?>
             </div>
             <div class="filter-results">
-                <span class="results-count" id="resultsCount">
-                    <?= count($advisors) ?> asesor<?= count($advisors) !== 1 ? 'es' : '' ?>
+                <span class="results-count">
+                    <?= $totalAdvisors ?> asesor<?= $totalAdvisors !== 1 ? 'es' : '' ?> encontrado<?= $totalAdvisors !== 1 ? 's' : '' ?>
                 </span>
-                <?php if (!empty($filterCampaignId)): ?>
+                <?php if ($filterCampaignId || $filterEstado || $filterSearch): ?>
                 <span class="filter-active-badge">Filtro activo</span>
                 <?php endif; ?>
             </div>
@@ -147,12 +147,18 @@ ob_start();
             <div class="empty-state-icon">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
             </div>
+            <?php if ($filterCampaignId || $filterEstado || $filterSearch): ?>
+            <h5>No se encontraron asesores</h5>
+            <p>Ajusta los filtros o limpia la busqueda para ver resultados.</p>
+            <a href="<?= BASE_URL ?>/advisors" class="btn btn-primary">Limpiar filtros</a>
+            <?php else: ?>
             <h5>No hay asesores registrados</h5>
             <p>Agrega tu primer asesor para comenzar a asignar horarios.</p>
             <a href="<?= BASE_URL ?>/advisors/create" class="btn btn-primary">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
                 Agregar Asesor
             </a>
+            <?php endif; ?>
         </div>
         <?php else: ?>
         <div class="panel-header">
@@ -160,13 +166,6 @@ ob_start();
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
                 Listado de Asesores
                 <span class="panel-counter"><?= $totalAdvisors ?></span>
-            </div>
-            <div style="display:flex;align-items:center;gap:12px;">
-                <div class="search-box">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-                    <input type="text" id="searchInput" placeholder="Buscar asesor...">
-                    <kbd class="search-kbd">Ctrl+K</kbd>
-                </div>
             </div>
         </div>
 
@@ -187,7 +186,7 @@ ob_start();
                 </thead>
                 <tbody>
                     <?php foreach ($advisors as $i => $advisor): ?>
-                    <tr class="table-row-animated" data-estado="<?= $advisor['estado'] ?>" style="animation-delay: <?= $i * 0.03 ?>s">
+                    <tr class="table-row-animated" style="animation-delay: <?= $i * 0.03 ?>s">
                         <td>
                             <div class="cell-flex">
                                 <?php
@@ -208,7 +207,6 @@ ob_start();
                         <td>
                             <?php
                             $cType = $advisor['tipo_contrato'] === 'completo' ? 'badge-success' : 'badge-warning';
-                            $cIcon = $advisor['tipo_contrato'] === 'completo' ? '8h' : '4h';
                             ?>
                             <span class="badge <?= $cType ?>" title="<?= $advisor['tipo_contrato'] === 'completo' ? 'Jornada completa (8h)' : 'Media jornada (4h)' ?>">
                                 <?= ucfirst($advisor['tipo_contrato']) ?>
@@ -270,23 +268,46 @@ ob_start();
             </table>
         </div>
 
-        <!-- Footer de tabla -->
-        <div class="table-footer">
-            <div class="tf-page-size">
-                Mostrar
-                <select id="pageSize">
-                    <option value="10">10</option>
-                    <option value="20">20</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                </select>
-                registros
-            </div>
-            <span class="table-footer-info" id="tableFooterInfo">
-                Mostrando <strong id="visibleCount"><?= $totalAdvisors ?></strong> de <strong id="totalCount"><?= $totalAdvisors ?></strong> asesores
+        <!-- Server-side pagination -->
+        <?php if ($totalPages > 1): ?>
+        <?php
+        // Build base query string preserving filters
+        $paginationParams = [];
+        if ($filterCampaignId) $paginationParams['campaign_id'] = $filterCampaignId;
+        if ($filterEstado) $paginationParams['estado'] = $filterEstado;
+        if ($filterSearch) $paginationParams['q'] = $filterSearch;
+        ?>
+        <div class="table-footer" style="justify-content: space-between;">
+            <span class="table-footer-info">
+                Mostrando <strong><?= count($advisors) ?></strong> de <strong><?= $totalAdvisors ?></strong> asesores
+                (pagina <?= $page ?> de <?= $totalPages ?>)
             </span>
-            <div class="tf-pagination" id="pagination"></div>
+            <div class="tf-pagination">
+                <?php if ($page > 1): ?>
+                <a href="<?= BASE_URL ?>/advisors?<?= http_build_query(array_merge($paginationParams, ['page' => $page - 1])) ?>" class="tf-page-btn">&laquo; Anterior</a>
+                <?php endif; ?>
+
+                <?php
+                $startP = max(1, $page - 2);
+                $endP = min($totalPages, $page + 2);
+                for ($p = $startP; $p <= $endP; $p++):
+                ?>
+                <a href="<?= BASE_URL ?>/advisors?<?= http_build_query(array_merge($paginationParams, ['page' => $p])) ?>"
+                   class="tf-page-btn<?= $p === $page ? ' active' : '' ?>"><?= $p ?></a>
+                <?php endfor; ?>
+
+                <?php if ($page < $totalPages): ?>
+                <a href="<?= BASE_URL ?>/advisors?<?= http_build_query(array_merge($paginationParams, ['page' => $page + 1])) ?>" class="tf-page-btn">Siguiente &raquo;</a>
+                <?php endif; ?>
+            </div>
         </div>
+        <?php else: ?>
+        <div class="table-footer">
+            <span class="table-footer-info">
+                Mostrando <strong><?= count($advisors) ?></strong> de <strong><?= $totalAdvisors ?></strong> asesores
+            </span>
+        </div>
+        <?php endif; ?>
         <?php endif; ?>
     </div>
 </div>
@@ -298,55 +319,6 @@ $extraScripts = [];
 $extraScripts[] = <<<'SCRIPT'
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    var searchInput = document.getElementById('searchInput');
-    var activeStatFilter = null;
-
-    var pag = new TablePaginator({
-        tableId: 'advisorsTable',
-        pageSizeSelId: 'pageSize',
-        paginationId: 'pagination',
-        infoId: 'visibleCount',
-        totalId: 'totalCount',
-        defaultSize: 10
-    });
-
-    function applyFilters() {
-        var search = (searchInput ? searchInput.value.toLowerCase() : '');
-        pag.applyFilter(function(row) {
-            var matchSearch = !search || row.textContent.toLowerCase().includes(search);
-            var matchStat = !activeStatFilter || row.dataset.estado === activeStatFilter;
-            return matchSearch && matchStat;
-        });
-    }
-
-    if (searchInput) {
-        searchInput.addEventListener('input', applyFilters);
-    }
-
-    // Atajo Ctrl+K
-    document.addEventListener('keydown', function(e) {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-            e.preventDefault();
-            if (searchInput) searchInput.focus();
-        }
-    });
-
-    // Filtro rapido por stats
-    document.querySelectorAll('.stat-clickable').forEach(function(stat) {
-        stat.style.cursor = 'pointer';
-        stat.addEventListener('click', function() {
-            document.querySelectorAll('.stat-clickable').forEach(function(s) { s.classList.remove('stat-active-filter'); });
-            var filter = this.dataset.filter;
-            if (filter === 'all') {
-                activeStatFilter = null;
-            } else {
-                activeStatFilter = filter;
-                this.classList.add('stat-active-filter');
-            }
-            applyFilters();
-        });
-    });
-
     // Auto-dismiss alerts
     document.querySelectorAll('.alert-dismissible').forEach(function(alert) {
         setTimeout(function() {

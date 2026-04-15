@@ -14,6 +14,7 @@ use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 
 require_once APP_PATH . '/Services/AuthService.php';
+require_once APP_PATH . '/Services/ScheduleReportService.php';
 
 class ReportController
 {
@@ -23,17 +24,11 @@ class ReportController
     ];
 
     /**
-     * Get monthly hour target from DB (monthly_hours_config) or fall back to defaults.
+     * Get monthly hour target — delegates to ScheduleReportService.
      */
     private function getMonthlyTarget(\PDO $pdo, int $year, int $month, int $daysInMonth): int
     {
-        $stmt = $pdo->prepare("SELECT horas_requeridas FROM monthly_hours_config WHERE anio = :y AND mes = :m");
-        $stmt->execute([':y' => $year, ':m' => $month]);
-        $row = $stmt->fetch();
-        if ($row) {
-            return (int)$row['horas_requeridas'];
-        }
-        return self::DEFAULT_TARGETS[$daysInMonth] ?? 170;
+        return \App\Services\ScheduleReportService::getMonthlyTarget($pdo, $year, $month, $daysInMonth);
     }
 
     public function index(): void
@@ -53,6 +48,18 @@ class ReportController
         }
         $campaigns = $stmt->fetchAll();
 
+        // Filtro por busqueda de campaña
+        $filterSearch = isset($_GET['q']) && trim($_GET['q']) !== '' ? trim($_GET['q']) : null;
+        if ($filterSearch) {
+            $campaigns = array_filter($campaigns, function ($c) use ($filterSearch) {
+                return stripos($c['nombre'], $filterSearch) !== false;
+            });
+            $campaigns = array_values($campaigns);
+        }
+
+        // Periodos disponibles para filtro de exportación unificada
+        $availablePeriods = $pdo->query("SELECT DISTINCT periodo_anio, periodo_mes FROM schedules ORDER BY periodo_anio DESC, periodo_mes DESC")->fetchAll();
+
         $pageTitle = 'Reportes';
         $currentPage = 'reports';
 
@@ -63,182 +70,23 @@ class ReportController
     {
         AuthService::requirePermission('reports.view');
 
-        $pdo = Database::getConnection();
+        $year = (int)($_GET['year'] ?? 0);
+        $month = (int)($_GET['month'] ?? 0);
 
-        // Get campaign info
-        $stmt = $pdo->prepare("SELECT * FROM campaigns WHERE id = :id");
-        $stmt->execute([':id' => $campaignId]);
-        $campaign = $stmt->fetch();
+        $result = \App\Services\ScheduleReportService::getHoursReport($campaignId, $year, $month);
 
-        if (!$campaign) {
+        if (!$result['campaign']) {
             header('Location: ' . BASE_URL . '/reports');
             exit;
         }
 
-        // Determine period from query params or latest schedule
-        $year = (int)($_GET['year'] ?? 0);
-        $month = (int)($_GET['month'] ?? 0);
-
-        if ($year === 0 || $month === 0) {
-            $stmt = $pdo->prepare("
-                SELECT periodo_anio, periodo_mes FROM schedules
-                WHERE campaign_id = :cid
-                ORDER BY periodo_anio DESC, periodo_mes DESC
-                LIMIT 1
-            ");
-            $stmt->execute([':cid' => $campaignId]);
-            $latest = $stmt->fetch();
-            if ($latest) {
-                $year = (int)$latest['periodo_anio'];
-                $month = (int)$latest['periodo_mes'];
-            } else {
-                $year = (int)date('Y');
-                $month = (int)date('n');
-            }
-        }
-
-        $daysInMonth = (int)cal_days_in_month(CAL_GREGORIAN, $month, $year);
-        $fechaInicio = sprintf('%04d-%02d-01', $year, $month);
-        $fechaFin = sprintf('%04d-%02d-%02d', $year, $month, $daysInMonth);
-
-        // Monthly hour target
-        $monthlyTarget = $this->getMonthlyTarget($pdo, $year, $month, $daysInMonth);
-
-        // Get all advisors for this campaign (own + shared incoming)
-        $stmt = $pdo->prepare("
-            SELECT a.id, a.nombres, a.apellidos, 'propio' as tipo
-            FROM advisors a
-            WHERE a.campaign_id = :cid AND a.estado = 'activo'
-            UNION ALL
-            SELECT a.id, a.nombres, a.apellidos, 'compartido' as tipo
-            FROM shared_advisors sa
-            JOIN advisors a ON a.id = sa.advisor_id
-            WHERE sa.target_campaign_id = :cid2 AND sa.estado = 'activo' AND a.estado = 'activo'
-            ORDER BY tipo, apellidos, nombres
-        ");
-        $stmt->execute([':cid' => $campaignId, ':cid2' => $campaignId]);
-        $advisors = $stmt->fetchAll();
-
-        if (empty($advisors)) {
-            $reportData = [];
-        } else {
-            // Separate own vs shared advisors
-            $ownAdvisorIds = [];
-            $sharedAdvisorIds = [];
-            foreach ($advisors as $adv) {
-                if ($adv['tipo'] === 'propio') {
-                    $ownAdvisorIds[] = (int)$adv['id'];
-                } else {
-                    $sharedAdvisorIds[] = (int)$adv['id'];
-                }
-            }
-
-            $hoursMap = [];        // [advisor_id][day] = total hours
-            $ownCampHoursMap = []; // [advisor_id][day] = hours in this campaign only
-            $lentHoursMap = [];    // [advisor_id][day] = hours in other campaigns
-
-            // Own advisors: count ALL their hours across all campaigns
-            if (!empty($ownAdvisorIds)) {
-                $placeholders = implode(',', array_fill(0, count($ownAdvisorIds), '?'));
-                $params = array_merge($ownAdvisorIds, [$fechaInicio, $fechaFin]);
-
-                // Total hours (all campaigns)
-                $stmt = $pdo->prepare("
-                    SELECT advisor_id, campaign_id, fecha::text, COUNT(*) as horas
-                    FROM shift_assignments
-                    WHERE advisor_id IN ($placeholders)
-                      AND fecha BETWEEN ? AND ?
-                      AND tipo <> 'break'
-                    GROUP BY advisor_id, campaign_id, fecha
-                ");
-                $stmt->execute($params);
-                $rows = $stmt->fetchAll();
-
-                foreach ($rows as $row) {
-                    $advId = (int)$row['advisor_id'];
-                    $day = (int)substr($row['fecha'], -2);
-                    $h = (int)$row['horas'];
-                    $cid = (int)$row['campaign_id'];
-
-                    $hoursMap[$advId][$day] = ($hoursMap[$advId][$day] ?? 0) + $h;
-
-                    if ($cid === $campaignId) {
-                        $ownCampHoursMap[$advId][$day] = ($ownCampHoursMap[$advId][$day] ?? 0) + $h;
-                    } else {
-                        $lentHoursMap[$advId][$day] = ($lentHoursMap[$advId][$day] ?? 0) + $h;
-                    }
-                }
-            }
-
-            // Shared (incoming) advisors: only count hours in THIS campaign
-            if (!empty($sharedAdvisorIds)) {
-                $placeholders = implode(',', array_fill(0, count($sharedAdvisorIds), '?'));
-                $params = array_merge($sharedAdvisorIds, [$campaignId, $fechaInicio, $fechaFin]);
-
-                $stmt = $pdo->prepare("
-                    SELECT advisor_id, fecha::text, COUNT(*) as horas
-                    FROM shift_assignments
-                    WHERE advisor_id IN ($placeholders)
-                      AND campaign_id = ?
-                      AND fecha BETWEEN ? AND ?
-                      AND tipo <> 'break'
-                    GROUP BY advisor_id, fecha
-                ");
-                $stmt->execute($params);
-                $rows = $stmt->fetchAll();
-
-                foreach ($rows as $row) {
-                    $day = (int)substr($row['fecha'], -2);
-                    $hoursMap[(int)$row['advisor_id']][$day] = (int)$row['horas'];
-                }
-            }
-
-            // Build report data
-            $reportData = [];
-            foreach ($advisors as $adv) {
-                $advId = (int)$adv['id'];
-                $dailyHours = [];
-                $dailyLent = [];
-                $total = 0;
-                $totalLent = 0;
-                for ($d = 1; $d <= $daysInMonth; $d++) {
-                    $h = $hoursMap[$advId][$d] ?? 0;
-                    $l = $lentHoursMap[$advId][$d] ?? 0;
-                    $dailyHours[$d] = $h;
-                    $dailyLent[$d] = $l;
-                    $total += $h;
-                    $totalLent += $l;
-                }
-
-                $target = $monthlyTarget;
-                if ($adv['tipo'] === 'compartido') {
-                    $target = null;
-                }
-
-                $compliance = ($target && $target > 0) ? round(($total / $target) * 100, 1) : null;
-
-                $reportData[] = [
-                    'id' => $advId,
-                    'nombre' => $adv['nombres'] . ' ' . $adv['apellidos'],
-                    'tipo' => $adv['tipo'],
-                    'daily' => $dailyHours,
-                    'dailyLent' => $dailyLent,
-                    'total' => $total,
-                    'totalLent' => $totalLent,
-                    'target' => $target,
-                    'compliance' => $compliance,
-                ];
-            }
-        }
-
-        // Available periods for selector
-        $stmt = $pdo->prepare("
-            SELECT DISTINCT periodo_anio, periodo_mes
-            FROM schedules WHERE campaign_id = :cid
-            ORDER BY periodo_anio DESC, periodo_mes DESC
-        ");
-        $stmt->execute([':cid' => $campaignId]);
-        $availablePeriods = $stmt->fetchAll();
+        $campaign = $result['campaign'];
+        $reportData = $result['reportData'];
+        $availablePeriods = $result['availablePeriods'];
+        $year = $result['year'];
+        $month = $result['month'];
+        $monthlyTarget = $result['monthlyTarget'];
+        $daysInMonth = $result['daysInMonth'];
 
         $pageTitle = 'Reporte de Horas - ' . $campaign['nombre'];
         $currentPage = 'reports';

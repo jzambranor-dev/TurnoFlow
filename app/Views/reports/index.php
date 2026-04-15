@@ -17,14 +17,11 @@ ob_start();
         </div>
         <?php if ($isAdmin): ?>
         <div style="display: flex; align-items: center; gap: 10px;">
+            <?php
+            $monthNamesP = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+            ?>
             <select id="unifiedPeriod" class="form-select" style="padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.85rem;">
-                <?php
-                $pdo2 = Database::getConnection();
-                $stmtP = $pdo2->query("SELECT DISTINCT periodo_anio, periodo_mes FROM schedules ORDER BY periodo_anio DESC, periodo_mes DESC");
-                $periods = $stmtP->fetchAll();
-                $monthNamesP = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-                foreach ($periods as $p):
-                ?>
+                <?php foreach ($availablePeriods as $p): ?>
                 <option value="<?= $p['periodo_anio'] ?>-<?= $p['periodo_mes'] ?>"><?= $monthNamesP[(int)$p['periodo_mes']] ?> <?= $p['periodo_anio'] ?></option>
                 <?php endforeach; ?>
             </select>
@@ -34,6 +31,19 @@ ob_start();
             </a>
         </div>
         <?php endif; ?>
+    </div>
+
+    <!-- Filtro de busqueda -->
+    <div class="data-panel filter-panel" style="margin-bottom: 16px;">
+        <form method="GET" action="<?= BASE_URL ?>/reports" class="filter-form" style="display:flex;align-items:center;gap:12px;padding:12px 16px;">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width:18px;height:18px;color:#64748b;flex-shrink:0;"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+            <input type="text" name="q" placeholder="Buscar campaña..." value="<?= htmlspecialchars($filterSearch ?? '') ?>" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:6px;font-size:0.85rem;flex:1;max-width:300px;">
+            <button type="submit" class="btn btn-primary" style="padding:8px 16px;">Buscar</button>
+            <?php if ($filterSearch): ?>
+            <a href="<?= BASE_URL ?>/reports" class="btn" style="padding:8px 16px;background:#6b7280;color:#fff;border-radius:6px;text-decoration:none;">Limpiar</a>
+            <?php endif; ?>
+            <span style="color:#64748b;font-size:0.85rem;margin-left:auto;"><?= count($campaigns) ?> campaña<?= count($campaigns) !== 1 ? 's' : '' ?></span>
+        </form>
     </div>
 
     <div class="data-panel">

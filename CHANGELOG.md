@@ -4,6 +4,47 @@ Todos los cambios notables del proyecto se documentan en este archivo.
 
 ---
 
+## [1.6.0] - 2026-04-15
+
+### Fase 3 — Optimizaciones Tecnicas: Refactorizacion + Indices + Paginacion + UX
+
+#### 3.1 Refactorizacion de Controladores Grandes
+- **ImportService**: Nuevo servicio que encapsula toda la logica de importacion Excel/CSV extraida de `ScheduleController::import()`. Metodo principal `processExcel()` retorna resultado estructurado. Metodo `recordFailure()` para registrar errores de importacion. ScheduleController queda como thin wrapper que valida inputs y delega al servicio
+- **ScheduleReportService**: Nuevo servicio con logica de calculo de reportes de horas extraida de `ReportController::hours()`. Metodos `getHoursReport()` para reporte por campaña, `getMonthlyTarget()` para target mensual, `resolvePeriod()` para resolver periodo desde GET params. ReportController queda como orquestador que pasa datos a la vista
+- **AttendanceService**: Nuevo servicio con logica de asistencia y check-in extraida de `ScheduleController`. Metodos `saveAttendance()` para guardar registros de asistencia con audit log, `toggleCheckin()` para alternar check-in de asesores. ScheduleController delega la logica de negocio al servicio
+- **3 archivos creados**: `app/Services/ImportService.php`, `app/Services/ScheduleReportService.php`, `app/Services/AttendanceService.php`
+
+#### 3.2 Indices y Queries
+- **Migracion `008_performance_indexes.sql`**: 6 indices compuestos para las queries mas frecuentes:
+  - `idx_notif_user_unread`: Notificaciones no leidas por usuario (parcial WHERE leida = FALSE)
+  - `idx_audit_entidad_id`: Audit log por entidad + ID para historial de horarios
+  - `idx_attendance_fecha`: Asistencia por fecha para tracking diario
+  - `idx_shift_schedule_fecha`: Shift assignments por schedule + fecha para vistas diarias
+  - `idx_checkins_fecha`: Check-ins por fecha
+  - `idx_schedules_campaign_status`: Schedules por campaña + status para listas filtradas
+- **N+1 en DashboardController**: Las 4 queries separadas del supervisor (campaigns, advisors, draft_schedules, approved_schedules) se unificaron en una sola query con subqueries — de 4 roundtrips a 1
+
+#### 3.3 Paginacion Server-Side en Tablas Grandes
+- **Asesores (`/advisors`)**: Paginacion server-side de 30 por pagina. Nuevos filtros GET: `campaign_id`, `estado` (activo/inactivo/licencia), `q` (busqueda por nombre o cedula), `page`. Stats globales calculados server-side con `COUNT(*) FILTER`. Las cards de estadisticas ahora son links con filtro directo
+- **Reportes (`/reports`)**: Filtro de busqueda por nombre de campaña. Periodos disponibles pasados desde el controlador en lugar de query inline en la vista
+- **Auditoria (`/audit-log`)**: Verificada paginacion existente con filtros combinados — funciona correctamente
+
+#### 3.4 Mejoras de UX Generales
+- **Breadcrumbs consistentes**: Agregados en 3 vistas que no los tenian:
+  - `notifications/index.php`: Dashboard > Notificaciones
+  - `audit/index.php`: Dashboard > Auditoria
+  - `advisors/bulk-config.php`: Asesores > Configuracion Masiva
+- **Loading states en operaciones lentas**:
+  - Boton "Generar Horario": Se deshabilita + muestra spinner + texto "Generando..." + llama `showLoading()` durante la generacion
+  - Boton "Descargar PDF": Muestra spinner temporal + texto "Generando..." mientras el PDF se genera en servidor
+  - `@keyframes spin` agregado al layout principal para spinners inline
+- **Empty states mejorados**:
+  - `users/index.php`: Agregado boton "Crear primer usuario" en estado vacio
+  - `roles/index.php`: Agregado bloque empty state completo con icono, mensaje y boton "Crear Rol"
+  - `advisors/index.php`: Estado vacio diferenciado entre "sin filtros" (crear asesor) y "con filtros activos" (limpiar filtros)
+
+---
+
 ## [1.5.0] - 2026-04-15
 
 ### Fase 2 — Funcionalidades Core: Auditoria + Reemplazos Asistidos + Alertas Deficit

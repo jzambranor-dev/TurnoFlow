@@ -17,6 +17,8 @@ require_once APP_PATH . '/Services/ScheduleBuilder.php';
 require_once APP_PATH . '/Services/NotificationService.php';
 require_once APP_PATH . '/Services/PdfService.php';
 require_once APP_PATH . '/Services/AuditService.php';
+require_once APP_PATH . '/Services/ImportService.php';
+require_once APP_PATH . '/Services/AttendanceService.php';
 
 class ScheduleController
 {
@@ -204,232 +206,30 @@ class ScheduleController
             exit;
         }
 
-        $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $periodoMes, $periodoAnio);
-        $requirements = [];
-        $totalAsesorHora = 0;
-
         try {
-            $spreadsheet = IOFactory::load($targetPath);
-            $sheet = $spreadsheet->getActiveSheet();
-
-            // Detectar formato: buscar la fila de encabezado y las filas de horas dinámicamente
-            // Soporta tanto "0:00" (formato Videollamada) como "10:00 - 11:00" (formato Kiosko)
-            $headerRow = null;
-            $hourRows = []; // [fila_excel => hora_int]
-
-            $maxRow = min($sheet->getHighestRow(), 50); // Buscar en las primeras 50 filas
-
-            // Paso 1: Encontrar la fila de encabezado ("Horas ACD" o similar)
-            for ($r = 1; $r <= $maxRow; $r++) {
-                $cellA = trim((string)$sheet->getCell('A' . $r)->getFormattedValue());
-                if ($cellA !== '' && stripos($cellA, 'horas') !== false) {
-                    $headerRow = $r;
-                    break;
-                }
-            }
-
-            if ($headerRow === null) {
-                throw new RuntimeException('Formato no reconocido: no se encontro una celda con "Horas" en la columna A.');
-            }
-
-            // Paso 2: Recorrer filas después del header para detectar horas
-            for ($r = $headerRow + 1; $r <= $maxRow; $r++) {
-                $cell = $sheet->getCell('A' . $r);
-                $formatted = trim((string)$cell->getFormattedValue());
-                $raw = $cell->getCalculatedValue();
-
-                if ($formatted === '' && ($raw === null || $raw === '')) continue;
-
-                // Detectar "TOTAL" para parar
-                if (stripos($formatted, 'total') !== false) break;
-
-                // Intentar con el valor formateado primero, luego con el raw
-                $hora = $this->parseHourFromCell($formatted);
-                if ($hora === null && $raw !== null) {
-                    $hora = $this->parseHourFromCell(trim((string)$raw));
-                }
-
-                if ($hora !== null && $hora >= 0 && $hora <= 23) {
-                    $hourRows[$r] = $hora;
-                }
-            }
-
-            if (empty($hourRows)) {
-                throw new RuntimeException('No se encontraron filas con horas validas en la columna A.');
-            }
-
-            // Paso 3: Leer los datos de cada fila de hora detectada
-            foreach ($hourRows as $row => $hour) {
-                for ($day = 1; $day <= $daysInMonth; $day++) {
-                    $column = $day + 1;
-                    $cellRef = Coordinate::stringFromColumnIndex($column) . $row;
-                    $rawValue = $sheet->getCell($cellRef)->getCalculatedValue();
-                    $asesores = $this->normalizeRequiredAdvisors($rawValue);
-
-                    $requirements[] = [
-                        'fecha' => sprintf('%04d-%02d-%02d', $periodoAnio, $periodoMes, $day),
-                        'hora' => $hour,
-                        'asesores_requeridos' => $asesores,
-                    ];
-                    $totalAsesorHora += $asesores;
-                }
-            }
-
-            $fechaInicio = sprintf('%04d-%02d-01', $periodoAnio, $periodoMes);
-            $fechaFin = sprintf('%04d-%02d-%02d', $periodoAnio, $periodoMes, $daysInMonth);
-
-            $pdo->beginTransaction();
-
-            $stmtImport = $pdo->prepare("
-                INSERT INTO staffing_imports (
-                    campaign_id, periodo_anio, periodo_mes, archivo_nombre,
-                    importado_por, total_asesor_hora, estado, errores_json
-                ) VALUES (
-                    :campaign_id, :periodo_anio, :periodo_mes, :archivo_nombre,
-                    :importado_por, :total_asesor_hora, 'procesado', NULL
-                )
-                ON CONFLICT (campaign_id, periodo_anio, periodo_mes)
-                DO UPDATE SET
-                    archivo_nombre = EXCLUDED.archivo_nombre,
-                    importado_por = EXCLUDED.importado_por,
-                    total_asesor_hora = EXCLUDED.total_asesor_hora,
-                    estado = 'procesado',
-                    errores_json = NULL,
-                    imported_at = NOW()
-                RETURNING id
-            ");
-            $stmtImport->execute([
-                ':campaign_id' => $campaignId,
-                ':periodo_anio' => $periodoAnio,
-                ':periodo_mes' => $periodoMes,
-                ':archivo_nombre' => $storedName,
-                ':importado_por' => $user['id'],
-                ':total_asesor_hora' => $totalAsesorHora,
-            ]);
-            $importId = (int)$stmtImport->fetchColumn();
-
-            $stmtDelete = $pdo->prepare("
-                DELETE FROM staffing_requirements
-                WHERE campaign_id = :campaign_id
-                  AND fecha BETWEEN :fecha_inicio AND :fecha_fin
-            ");
-            $stmtDelete->execute([
-                ':campaign_id' => $campaignId,
-                ':fecha_inicio' => $fechaInicio,
-                ':fecha_fin' => $fechaFin,
-            ]);
-
-            $stmtInsert = $pdo->prepare("
-                INSERT INTO staffing_requirements (
-                    import_id, campaign_id, fecha, hora, asesores_requeridos
-                ) VALUES (
-                    :import_id, :campaign_id, :fecha, :hora, :asesores_requeridos
-                )
-                ON CONFLICT (campaign_id, fecha, hora)
-                DO UPDATE SET
-                    import_id = EXCLUDED.import_id,
-                    asesores_requeridos = EXCLUDED.asesores_requeridos
-            ");
-
-            foreach ($requirements as $requirement) {
-                $stmtInsert->execute([
-                    ':import_id' => $importId,
-                    ':campaign_id' => $campaignId,
-                    ':fecha' => $requirement['fecha'],
-                    ':hora' => $requirement['hora'],
-                    ':asesores_requeridos' => $requirement['asesores_requeridos'],
-                ]);
-            }
-
-            $scheduleAction = $this->syncMonthlyScheduleHeader(
-                $pdo,
-                $campaignId,
-                $periodoAnio,
-                $periodoMes,
-                $fechaInicio,
-                $fechaFin,
-                (int)$user['id']
+            $result = \App\Services\ImportService::processExcel(
+                $targetPath, $campaignId, $periodoMes, $periodoAnio, (int)$user['id']
             );
 
-            $generatedAssignments = 0;
-            $scheduleRow = $this->findMonthlySchedule($pdo, $campaignId, $fechaInicio);
-            if ($scheduleRow) {
-                $existingAssignments = $this->countScheduleAssignments($pdo, (int)$scheduleRow['id']);
-                $isLockedStatus = in_array($scheduleRow['status'], ['aprobado', 'enviado'], true);
-                $canRegenerate = !$isLockedStatus || ($isLockedStatus && $existingAssignments === 0);
-
-                if ($canRegenerate) {
-                    // Usar el nuevo ScheduleBuilder
-                    $builder = new \App\Services\ScheduleBuilder($pdo);
-                    $generatedAssignments = $builder->build(
-                        (int)$scheduleRow['id'],
-                        $campaignId,
-                        $fechaInicio,
-                        $fechaFin
-                    );
-                }
-            }
-
-            $pdo->commit();
-
-            // Regenerar campañas fuente si hay asesores compartidos
-            $regeneratedCampaigns = $this->regenerarCampañasFuente(
-                $pdo, $campaignId, $fechaInicio, $fechaFin, (int)$user['id']
-            );
-
+            $stats = $result['stats'];
             $msg = sprintf(
                 'Importación completada para %s. Se guardaron %d registros (%02d/%04d), el horario mensual fue %s y se generaron %d asignaciónes.',
                 $campaign['nombre'],
-                count($requirements),
+                $stats['requirements_count'],
                 $periodoMes,
                 $periodoAnio,
-                $scheduleAction,
-                $generatedAssignments
+                $stats['schedule_action'],
+                $stats['generated_assignments']
             );
-            if (!empty($regeneratedCampaigns)) {
-                $msg .= ' Se actualizaron horarios de: ' . implode(', ', $regeneratedCampaigns) . '.';
+            if (!empty($stats['regenerated_campaigns'])) {
+                $msg .= ' Se actualizaron horarios de: ' . implode(', ', $stats['regenerated_campaigns']) . '.';
             }
             $this->setFlash('success', $msg);
         } catch (Throwable $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-
-            $errorJson = json_encode([
-                'message' => $e->getMessage(),
-                'file' => $originalName,
-                'at' => date('c'),
-            ], JSON_UNESCAPED_UNICODE);
-
-            try {
-                $stmtError = $pdo->prepare("
-                    INSERT INTO staffing_imports (
-                        campaign_id, periodo_anio, periodo_mes, archivo_nombre,
-                        importado_por, total_asesor_hora, estado, errores_json
-                    ) VALUES (
-                        :campaign_id, :periodo_anio, :periodo_mes, :archivo_nombre,
-                        :importado_por, 0, 'error', CAST(:errores_json AS jsonb)
-                    )
-                    ON CONFLICT (campaign_id, periodo_anio, periodo_mes)
-                    DO UPDATE SET
-                        archivo_nombre = EXCLUDED.archivo_nombre,
-                        importado_por = EXCLUDED.importado_por,
-                        total_asesor_hora = 0,
-                        estado = 'error',
-                        errores_json = EXCLUDED.errores_json,
-                        imported_at = NOW()
-                ");
-                $stmtError->execute([
-                    ':campaign_id' => $campaignId,
-                    ':periodo_anio' => $periodoAnio,
-                    ':periodo_mes' => $periodoMes,
-                    ':archivo_nombre' => $storedName,
-                    ':importado_por' => $user['id'],
-                    ':errores_json' => $errorJson ?: '{}',
-                ]);
-            } catch (Throwable $dbError) {
-                error_log('Error guardando detalle de importación: ' . $dbError->getMessage());
-            }
+            \App\Services\ImportService::recordFailure(
+                $campaignId, $periodoAnio, $periodoMes, $storedName,
+                (int)$user['id'], $e->getMessage(), $originalName
+            );
 
             error_log('Importación fallida: ' . $e->getMessage());
             $this->setFlash('error', 'No se pudo procesar el archivo: ' . $e->getMessage());
@@ -1638,60 +1438,11 @@ class ScheduleController
             exit;
         }
 
-        $records = (array)$input['records'];
-        $validStatuses = ['presente', 'ausente', 'tardanza', 'salida_anticipada', 'licencia_medica', 'maternidad'];
-        $saved = 0;
+        $result = \App\Services\AttendanceService::saveAttendance(
+            $scheduleId, (array)$input['records'], (int)$user['id']
+        );
 
-        $pdo->beginTransaction();
-        try {
-            $stmtUpsert = $pdo->prepare("
-                INSERT INTO attendance (advisor_id, fecha, status, notas, registrado_por)
-                VALUES (:advisor_id, :fecha, :status, :notas, :registrado_por)
-                ON CONFLICT (advisor_id, fecha)
-                DO UPDATE SET status = EXCLUDED.status,
-                              notas = EXCLUDED.notas,
-                              registrado_por = EXCLUDED.registrado_por
-            ");
-
-            foreach ($records as $rec) {
-                $advisorId = (int)($rec['advisor_id'] ?? 0);
-                $fecha = (string)($rec['fecha'] ?? '');
-                $status = (string)($rec['status'] ?? 'presente');
-                $notas = trim((string)($rec['notas'] ?? ''));
-
-                if ($advisorId <= 0 || $fecha === '') continue;
-                if (!in_array($status, $validStatuses, true)) $status = 'presente';
-
-                // Validar que la fecha no sea futura (no puedes confirmar el futuro)
-                if ($fecha > date('Y-m-d')) continue;
-
-                $stmtUpsert->execute([
-                    ':advisor_id' => $advisorId,
-                    ':fecha' => $fecha,
-                    ':status' => $status,
-                    ':notas' => $notas ?: null,
-                    ':registrado_por' => $user['id'],
-                ]);
-                $saved++;
-            }
-
-            $pdo->commit();
-
-            \App\Services\AuditService::log(
-                'attendance.update',
-                'attendance',
-                $scheduleId,
-                [],
-                ['saved' => $saved, 'records_count' => count($records)]
-            );
-
-            echo json_encode(['success' => true, 'saved' => $saved]);
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
-            error_log('Error guardando asistencia: ' . $e->getMessage());
-            echo json_encode(['success' => false, 'error' => 'Error al guardar']);
-        }
-
+        echo json_encode($result);
         exit;
     }
 
@@ -1704,53 +1455,13 @@ class ScheduleController
 
         header('Content-Type: application/json');
 
-        $pdo = Database::getConnection();
-
-        $stmt = $pdo->prepare("SELECT id FROM schedules WHERE id = :id AND status = 'aprobado'");
-        $stmt->execute([':id' => $scheduleId]);
-        if (!$stmt->fetch()) {
-            echo json_encode(['success' => false, 'error' => 'Horario no encontrado o no aprobado']);
-            exit;
-        }
-
         $input = json_decode(file_get_contents('php://input'), true);
         $advisorId = (int)($input['advisor_id'] ?? 0);
         $fecha = (string)($input['fecha'] ?? '');
 
-        if ($advisorId <= 0 || $fecha === '') {
-            echo json_encode(['success' => false, 'error' => 'Datos invalidos']);
-            exit;
-        }
+        $result = \App\Services\AttendanceService::toggleCheckin($scheduleId, $advisorId, $fecha);
 
-        // No permitir check-in en fechas futuras
-        if ($fecha > date('Y-m-d')) {
-            echo json_encode(['success' => false, 'error' => 'No se puede hacer check-in en fechas futuras']);
-            exit;
-        }
-
-        try {
-            // Toggle: si existe eliminar, si no existe insertar
-            $stmt = $pdo->prepare("SELECT id FROM advisor_checkins WHERE advisor_id = :aid AND schedule_id = :sid AND fecha = :fecha");
-            $stmt->execute([':aid' => $advisorId, ':sid' => $scheduleId, ':fecha' => $fecha]);
-            $existing = $stmt->fetch();
-
-            if ($existing) {
-                $stmt = $pdo->prepare("DELETE FROM advisor_checkins WHERE id = :id");
-                $stmt->execute([':id' => $existing['id']]);
-                echo json_encode(['success' => true, 'checked' => false]);
-            } else {
-                $stmt = $pdo->prepare("
-                    INSERT INTO advisor_checkins (advisor_id, schedule_id, fecha)
-                    VALUES (:aid, :sid, :fecha)
-                ");
-                $stmt->execute([':aid' => $advisorId, ':sid' => $scheduleId, ':fecha' => $fecha]);
-                echo json_encode(['success' => true, 'checked' => true, 'time' => date('H:i')]);
-            }
-        } catch (Throwable $e) {
-            error_log('Error en check-in: ' . $e->getMessage());
-            echo json_encode(['success' => false, 'error' => 'Error al registrar check-in']);
-        }
-
+        echo json_encode($result);
         exit;
     }
 

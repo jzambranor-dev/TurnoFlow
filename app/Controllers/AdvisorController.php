@@ -22,9 +22,15 @@ class AdvisorController
         $user = $_SESSION['user'];
         $pdo = Database::getConnection();
 
-        // Filtro por campaña (desde GET)
+        // Filtros desde GET
         $filterCampaignId = isset($_GET['campaign_id']) && $_GET['campaign_id'] !== ''
             ? (int)$_GET['campaign_id'] : null;
+        $filterEstado = isset($_GET['estado']) && $_GET['estado'] !== ''
+            ? $_GET['estado'] : null;
+        $filterSearch = isset($_GET['q']) && trim($_GET['q']) !== ''
+            ? trim($_GET['q']) : null;
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $perPage = 30;
 
         // Cargar lista de campañas para el filtro
         if (AuthService::canManageAllCampaigns($user)) {
@@ -35,7 +41,7 @@ class AdvisorController
             $campaignsForFilter = $stmtCf->fetchAll();
         }
 
-        // Construir query de asesores con filtro opcional
+        // Construir query de asesores con filtros
         $where = [];
         $params = [];
 
@@ -49,21 +55,69 @@ class AdvisorController
             $params[':filter_campaign_id'] = $filterCampaignId;
         }
 
-        $sql = "
-            SELECT a.*, c.nombre as campaign_nombre,
-                   ac.tiene_vpn, ac.permite_extras, ac.max_horas_dia as constraint_max_horas
+        if ($filterEstado && in_array($filterEstado, ['activo', 'inactivo', 'licencia'], true)) {
+            $where[] = "a.estado = :filter_estado";
+            $params[':filter_estado'] = $filterEstado;
+        }
+
+        if ($filterSearch) {
+            $where[] = "(LOWER(a.nombres || ' ' || a.apellidos) LIKE LOWER(:search) OR LOWER(a.cedula) LIKE LOWER(:search2))";
+            $params[':search'] = '%' . $filterSearch . '%';
+            $params[':search2'] = '%' . $filterSearch . '%';
+        }
+
+        $whereClause = $where ? " WHERE " . implode(" AND ", $where) : "";
+
+        $baseSQL = "
             FROM advisors a
             JOIN campaigns c ON c.id = a.campaign_id
             LEFT JOIN advisor_constraints ac ON ac.advisor_id = a.id
+            {$whereClause}
         ";
-        if ($where) {
-            $sql .= " WHERE " . implode(" AND ", $where);
-        }
-        $sql .= " ORDER BY a.apellidos, a.nombres";
+
+        // Count total for pagination
+        $stmtCount = $pdo->prepare("SELECT COUNT(*) {$baseSQL}");
+        $stmtCount->execute($params);
+        $totalAdvisors = (int)$stmtCount->fetchColumn();
+        $totalPages = max(1, (int)ceil($totalAdvisors / $perPage));
+        if ($page > $totalPages) $page = $totalPages;
+        $offset = ($page - 1) * $perPage;
+
+        // Fetch page
+        $sql = "SELECT a.*, c.nombre as campaign_nombre,
+                   ac.tiene_vpn, ac.permite_extras, ac.max_horas_dia as constraint_max_horas
+                {$baseSQL}
+                ORDER BY a.apellidos, a.nombres
+                LIMIT {$perPage} OFFSET {$offset}";
 
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         $advisors = $stmt->fetchAll();
+
+        // Stats counts (unfiltered for this user's scope)
+        $statsWhere = [];
+        $statsParams = [];
+        if (!AuthService::canManageAllCampaigns($user)) {
+            $statsWhere[] = "c.supervisor_id = :supervisor_id";
+            $statsParams[':supervisor_id'] = $user['id'];
+        }
+        $statsWhereClause = $statsWhere ? " WHERE " . implode(" AND ", $statsWhere) : "";
+
+        $stmtStats = $pdo->prepare("
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE a.estado = 'activo') as activos,
+                COUNT(*) FILTER (WHERE a.estado = 'inactivo') as inactivos,
+                COUNT(*) FILTER (WHERE a.estado = 'licencia') as licencia,
+                COUNT(*) FILTER (WHERE ac.tiene_vpn = true) as con_vpn,
+                COUNT(*) FILTER (WHERE ac.permite_extras = true) as con_extras
+            FROM advisors a
+            JOIN campaigns c ON c.id = a.campaign_id
+            LEFT JOIN advisor_constraints ac ON ac.advisor_id = a.id
+            {$statsWhereClause}
+        ");
+        $stmtStats->execute($statsParams);
+        $statsCounts = $stmtStats->fetch();
 
         $flashSuccess = $_SESSION['flash_success'] ?? null;
         $flashError = $_SESSION['flash_error'] ?? null;

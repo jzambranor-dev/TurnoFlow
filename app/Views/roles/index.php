@@ -37,6 +37,16 @@ ob_start();
     </div>
 
     <div class="roles-grid">
+        <?php if (empty($roles)): ?>
+        <div class="empty-state" style="grid-column: 1/-1; padding: 60px 20px; text-align: center;">
+            <div class="empty-state-icon">
+                <svg viewBox="0 0 24 24" fill="currentColor" style="width:48px;height:48px;color:#94a3b8;"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+            </div>
+            <h5>No hay roles configurados</h5>
+            <p>Crea el primer rol para gestionar permisos del sistema.</p>
+            <a href="<?= BASE_URL ?>/roles/create" class="btn btn-primary">Crear Rol</a>
+        </div>
+        <?php endif; ?>
         <?php foreach ($roles as $role): ?>
         <?php
         $isBase = in_array($role['nombre'], ['admin', 'gerente', 'coordinador', 'supervisor', 'asesor']);

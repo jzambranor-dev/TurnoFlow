@@ -7,6 +7,11 @@ $currentPage = 'notifications';
 
 $appUrl = BASE_URL;
 
+$breadcrumbs = [
+    ['label' => 'Dashboard', 'url' => BASE_URL . '/dashboard'],
+    ['label' => 'Notificaciones'],
+];
+
 $tipoIconos = [
     'horario_enviado'    => ['icon' => 'M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z', 'color' => '#2563eb'],
     'horario_aprobado'   => ['icon' => 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z', 'color' => '#15803d'],
@@ -104,6 +109,12 @@ SCRIPT;
 
 ob_start();
 ?>
+
+<div class="form-breadcrumb" style="margin-bottom:16px;">
+    <a href="<?= BASE_URL ?>/dashboard" style="color:#2563eb;text-decoration:none;font-weight:500;">Dashboard</a>
+    <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:#94a3b8;"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+    <span>Notificaciones</span>
+</div>
 
 <div class="mark-all-bar">
     <div style="color: var(--corp-gray-500); font-size: 0.9rem;">

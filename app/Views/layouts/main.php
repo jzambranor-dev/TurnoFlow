@@ -42,6 +42,7 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
     <script src="<?= BASE_URL ?>/js/table-paginator.js" defer></script>
 
     <style>
+        @keyframes spin { to { transform: rotate(360deg); } }
         .notif-bell-wrapper { position: relative; }
         .notif-badge {
             position: absolute; top: 2px; right: 2px;

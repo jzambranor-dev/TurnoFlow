@@ -192,35 +192,24 @@ class DashboardController
             $recentCampaigns = $stmt->fetchAll();
         }
 
-        // Stats para supervisor
+        // Stats para supervisor — una sola query para todos los contadores
         if ($rol === 'supervisor') {
-            $stmt = $pdo->prepare("SELECT COUNT(*) FROM campaigns WHERE supervisor_id = :uid AND estado = 'activa'");
-            $stmt->execute([':uid' => $user['id']]);
-            $stats['campaigns'] = $stmt->fetchColumn();
-
             $stmt = $pdo->prepare("
-                SELECT COUNT(*) FROM advisors a
-                JOIN campaigns c ON c.id = a.campaign_id
-                WHERE c.supervisor_id = :uid AND a.estado = 'activo'
+                SELECT
+                    (SELECT COUNT(*) FROM campaigns WHERE supervisor_id = :uid1 AND estado = 'activa') as campaigns,
+                    (SELECT COUNT(*) FROM advisors a JOIN campaigns c ON c.id = a.campaign_id
+                     WHERE c.supervisor_id = :uid2 AND a.estado = 'activo') as advisors,
+                    (SELECT COUNT(*) FROM schedules s JOIN campaigns c ON c.id = s.campaign_id
+                     WHERE c.supervisor_id = :uid3 AND s.status = 'borrador') as draft_schedules,
+                    (SELECT COUNT(*) FROM schedules s JOIN campaigns c ON c.id = s.campaign_id
+                     WHERE c.supervisor_id = :uid4 AND s.status = 'aprobado') as approved_schedules
             ");
-            $stmt->execute([':uid' => $user['id']]);
-            $stats['advisors'] = $stmt->fetchColumn();
-
-            $stmt = $pdo->prepare("
-                SELECT COUNT(*) FROM schedules s
-                JOIN campaigns c ON c.id = s.campaign_id
-                WHERE c.supervisor_id = :uid AND s.status = 'borrador'
-            ");
-            $stmt->execute([':uid' => $user['id']]);
-            $stats['draft_schedules'] = $stmt->fetchColumn();
-
-            $stmt = $pdo->prepare("
-                SELECT COUNT(*) FROM schedules s
-                JOIN campaigns c ON c.id = s.campaign_id
-                WHERE c.supervisor_id = :uid AND s.status = 'aprobado'
-            ");
-            $stmt->execute([':uid' => $user['id']]);
-            $stats['approved_schedules'] = $stmt->fetchColumn();
+            $stmt->execute([
+                ':uid1' => $user['id'], ':uid2' => $user['id'],
+                ':uid3' => $user['id'], ':uid4' => $user['id'],
+            ]);
+            $counts = $stmt->fetch();
+            $stats = array_merge($stats, $counts);
 
             // Mis campañas con conteo via LEFT JOIN + GROUP BY
             $stmt = $pdo->prepare("

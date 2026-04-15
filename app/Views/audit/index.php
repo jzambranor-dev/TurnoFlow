@@ -28,6 +28,12 @@ ob_start();
 ?>
 
 <div class="audit-page">
+    <div class="form-breadcrumb" style="margin-bottom:12px;">
+        <a href="<?= BASE_URL ?>/dashboard" style="color:#2563eb;text-decoration:none;font-weight:500;">Dashboard</a>
+        <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:#94a3b8;"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+        <span>Auditoria</span>
+    </div>
+
     <div class="page-header">
         <div class="header-content">
             <div class="header-info">

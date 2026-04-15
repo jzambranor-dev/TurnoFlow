@@ -361,7 +361,7 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
                 </a>
                 <?php endif; ?>
 
-                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/export-pdf" class="btn-solid" style="background:#7c3aed;color:#fff;" target="_blank">
+                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/export-pdf" class="btn-solid" style="background:#7c3aed;color:#fff;" target="_blank" onclick="var el=this;el.style.pointerEvents='none';el.innerHTML='<span style=\'display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-radius:50%;border-top-color:#fff;animation:spin .6s linear infinite;margin-right:6px;vertical-align:middle;\'></span> Generando...';setTimeout(function(){el.style.pointerEvents='';el.innerHTML='Descargar PDF';},5000);">
                     <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;"><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM14 9.5h1v-1h-1v1z"/></svg>
                     Descargar PDF
                 </a>

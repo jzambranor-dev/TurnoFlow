@@ -777,10 +777,16 @@ function confirmGenerate(form) {
     var label = btn ? btn.textContent.trim() : 'Generar';
     var isRegenerate = label.indexOf('Regenerar') !== -1;
 
-    if (isRegenerate) {
-        return confirm('Este horario ya tiene asignaciónes. Se eliminaran y se generaran nuevas. ¿Continuar?');
+    var confirmed = isRegenerate
+        ? confirm('Este horario ya tiene asignaciónes. Se eliminaran y se generaran nuevas. ¿Continuar?')
+        : confirm('¿Generar el horario con esta importación?');
+
+    if (confirmed && btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:16px;height:16px;border-width:2px;display:inline-block;border:2px solid rgba(255,255,255,0.3);border-radius:50%;border-top-color:#fff;animation:spin .6s linear infinite;margin-right:6px;vertical-align:middle;"></span> Generando...';
+        if (typeof showLoading === 'function') showLoading('Generando horario, esto puede tardar unos segundos...');
     }
-    return confirm('¿Generar el horario con esta importación?');
+    return confirmed;
 }
 
 function confirmDelete(form, periodo) {
