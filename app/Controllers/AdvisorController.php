@@ -11,6 +11,7 @@ use Throwable;
 use App\Services\AuthService;
 
 require_once APP_PATH . '/Services/AuthService.php';
+require_once APP_PATH . '/Services/AuditService.php';
 
 class AdvisorController
 {
@@ -164,6 +165,14 @@ class AdvisorController
             );
 
             $pdo->commit();
+
+            \App\Services\AuditService::log(
+                'advisor.create',
+                'advisors',
+                (int)$advisorId,
+                [],
+                ['nombres' => $nombres, 'apellidos' => $apellidos, 'campaign_id' => $campaign_id, 'tipo_contrato' => $tipo_contrato]
+            );
         } catch (Throwable $e) {
             $pdo->rollBack();
             $this->setFlash('error', $this->buildAdvisorErrorMessage($e));
@@ -366,6 +375,15 @@ class AdvisorController
             ]);
 
             $pdo->commit();
+
+            \App\Services\AuditService::log(
+                'advisor.update',
+                'advisors',
+                $id,
+                [],
+                ['nombres' => $nombres, 'apellidos' => $apellidos, 'campaign_id' => $campaign_id, 'estado' => $estado]
+            );
+
             $this->setFlash('success', 'Asesor actualizado correctamente.');
         } catch (\Exception $e) {
             $pdo->rollBack();

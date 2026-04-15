@@ -328,7 +328,7 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
             </div>
             <div class="header-actions">
                 <?php if ($schedule['status'] === 'borrador'): ?>
-                <form method="POST" action="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/submit" style="display:inline;">
+                <form method="POST" action="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/submit" style="display:inline;" id="formSubmitSchedule" onsubmit="return validateBeforeSubmit(event)">
                     <?= \App\Services\CsrfService::field() ?>
                     <button type="submit" class="btn-solid btn-send">
                         <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
@@ -946,7 +946,72 @@ unset($_SESSION['schedule_alerts_summary'], $_SESSION['schedule_alerts']);
             </table>
         </div>
     </div>
+
+    <?php if (in_array($viewMode, ['daily', 'edit']) && $selectedDate !== ''): ?>
+    <!-- Panel de Cobertura en Tiempo Real -->
+    <div class="panel coverage-realtime-panel" style="margin-top:16px;">
+        <div class="panel-head">
+            <h2 style="display:flex;align-items:center;gap:8px;">
+                <svg viewBox="0 0 24 24" fill="currentColor" style="width:18px;height:18px;"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+                Cobertura vs Requerimiento
+            </h2>
+            <span class="legend-note" id="coverageDateLabel"><?= htmlspecialchars($selectedDate) ?></span>
+        </div>
+        <div id="coverageBarsContainer" style="padding:16px;">
+            <div id="coverageBarsContent" style="display:flex;flex-wrap:wrap;gap:4px;align-items:flex-end;min-height:120px;">
+                <?php for ($h = 0; $h <= 23; $h++): ?>
+                <?php
+                    $req = (int)($selectedDailyRequirements[$h] ?? 0);
+                    $cov = (int)($selectedDailyCoverage[$h] ?? 0);
+                    $diff = $cov - $req;
+                    if ($req === 0 && $cov === 0) {
+                        $barColor = '#e2e8f0';
+                        $barPct = 0;
+                    } elseif ($req === 0) {
+                        $barColor = '#fbbf24';
+                        $barPct = 100;
+                    } elseif ($diff < 0) {
+                        $barColor = '#ef4444';
+                        $barPct = $req > 0 ? min(100, ($cov / $req) * 100) : 0;
+                    } elseif ($diff > 0) {
+                        $barColor = '#fbbf24';
+                        $barPct = 100;
+                    } else {
+                        $barColor = '#22c55e';
+                        $barPct = 100;
+                    }
+                ?>
+                <div class="coverage-bar-col" title="<?= sprintf('%02d:00 — %d/%d (%+d)', $h, $cov, $req, $diff) ?>">
+                    <div class="coverage-bar" style="height:<?= max(4, $barPct) ?>px;background:<?= $barColor ?>;"></div>
+                    <span class="coverage-bar-label"><?= sprintf('%02d', $h) ?></span>
+                    <span class="coverage-bar-val" style="color:<?= $barColor ?>"><?= $diff >= 0 ? '+' . $diff : $diff ?></span>
+                </div>
+                <?php endfor; ?>
+            </div>
+            <div class="coverage-legend" style="display:flex;gap:16px;margin-top:12px;font-size:12px;color:#64748b;">
+                <span><span style="display:inline-block;width:10px;height:10px;background:#22c55e;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>Cubierto</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#ef4444;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>Deficit</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#fbbf24;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>Sobrecobertura</span>
+            </div>
+        </div>
+    </div>
     <?php endif; ?>
+
+    <?php endif; ?>
+
+    <!-- Historial de Cambios (visible en todas las vistas) -->
+    <div class="panel" style="margin-top:20px;">
+        <div class="panel-head" style="cursor:pointer;" onclick="toggleAuditHistory()">
+            <h2 style="display:flex;align-items:center;gap:8px;">
+                <svg viewBox="0 0 24 24" fill="currentColor" style="width:18px;height:18px;color:#64748b;"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8z"/></svg>
+                Historial de Cambios
+            </h2>
+            <span class="legend-note" id="auditToggleIcon">Mostrar</span>
+        </div>
+        <div id="auditHistoryBody" style="display:none;padding:16px;">
+            <div id="auditHistoryContent" style="color:#94a3b8;text-align:center;padding:20px;">Cargando historial...</div>
+        </div>
+    </div>
 </div>
 
 <?php
@@ -1351,6 +1416,9 @@ async function saveChanges() {
             if (result.breaks > 0) msg += ', ' + result.breaks + ' breaks';
             if (result.activities > 0) msg += ', ' + result.activities + ' actividades';
             showToast(msg, 'success', 4000);
+
+            // Refresh coverage panel
+            if (typeof refreshCoveragePanel === 'function') refreshCoveragePanel();
         } else {
             showToast(result.error || 'Error desconocido al guardar', 'error', 5000);
         }
@@ -1429,6 +1497,206 @@ window.addEventListener('beforeunload', function(e) {
 @keyframes tf-spin { to { transform: rotate(360deg); } }
 </style>
 SCRIPT;
+
+$scheduleIdForAudit = (int)$schedule['id'];
+$extraScripts[] = <<<AUDIT_SCRIPT
+<script>
+let auditLoaded = false;
+function toggleAuditHistory() {
+    const body = document.getElementById('auditHistoryBody');
+    const icon = document.getElementById('auditToggleIcon');
+    if (body.style.display === 'none') {
+        body.style.display = 'block';
+        icon.textContent = 'Ocultar';
+        if (!auditLoaded) loadAuditHistory();
+    } else {
+        body.style.display = 'none';
+        icon.textContent = 'Mostrar';
+    }
+}
+
+async function loadAuditHistory() {
+    try {
+        const res = await fetch(BASE_URL + '/api/audit/schedule/{$scheduleIdForAudit}');
+        const data = await res.json();
+        if (!data.success || !data.items || data.items.length === 0) {
+            document.getElementById('auditHistoryContent').innerHTML = '<p style="color:#94a3b8;">No hay registros de auditoria para este horario.</p>';
+            auditLoaded = true;
+            return;
+        }
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+        html += '<thead><tr style="background:#f8fafc;"><th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Fecha</th><th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Usuario</th><th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Accion</th><th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">IP</th></tr></thead><tbody>';
+        data.items.forEach(function(item) {
+            const fecha = new Date(item.fecha).toLocaleString('es-EC', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+            const labels = {'schedule.submit':'Enviado','schedule.approve':'Aprobado','schedule.reject':'Rechazado','schedule.edit_assignments':'Edicion de turnos','attendance.update':'Asistencia'};
+            html += '<tr style="border-bottom:1px solid #f1f5f9;">';
+            html += '<td style="padding:8px 12px;color:#64748b;font-size:12px;">' + fecha + '</td>';
+            html += '<td style="padding:8px 12px;">' + (item.usuario || 'Sistema') + '</td>';
+            html += '<td style="padding:8px 12px;"><span style="padding:2px 8px;background:#eff6ff;color:#2563eb;border-radius:4px;font-size:12px;">' + (labels[item.accion] || item.accion) + '</span></td>';
+            html += '<td style="padding:8px 12px;font-family:monospace;font-size:11px;color:#94a3b8;">' + (item.ip || '-') + '</td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('auditHistoryContent').innerHTML = html;
+        auditLoaded = true;
+    } catch(e) {
+        document.getElementById('auditHistoryContent').innerHTML = '<p style="color:#ef4444;">Error al cargar historial.</p>';
+    }
+}
+</script>
+AUDIT_SCRIPT;
+
+$extraScripts[] = <<<'COVERAGE_SCRIPT'
+<script>
+let submitValidationPassed = false;
+
+function validateBeforeSubmit(event) {
+    if (submitValidationPassed) return true;
+
+    event.preventDefault();
+    const form = document.getElementById('formSubmitSchedule');
+    if (!form) return true;
+
+    // Check coverage for all dates by calling the API for a sample
+    checkCoverageBeforeSubmit(form);
+    return false;
+}
+
+async function checkCoverageBeforeSubmit(form) {
+    showLoading('Verificando cobertura...');
+
+    try {
+        // Get all dates from the schedule by parsing the date selector
+        const dateSelect = document.querySelector('.date-picker-form select[name="date"]');
+        const dates = dateSelect ? Array.from(dateSelect.options).map(o => o.value) : [];
+
+        let allDeficits = [];
+        let totalDeficitHours = 0;
+
+        // Check each date (batch in parallel, max 5 at a time)
+        for (let i = 0; i < dates.length; i += 5) {
+            const batch = dates.slice(i, i + 5);
+            const results = await Promise.all(batch.map(date =>
+                fetch(BASE_URL + '/api/schedules/' + SCHEDULE_ID_FOR_COVERAGE + '/coverage-check?date=' + date)
+                    .then(r => r.json())
+                    .catch(() => null)
+            ));
+
+            results.forEach((data, idx) => {
+                if (!data || !data.success) return;
+                const dateStr = batch[idx];
+                data.hourly.forEach(h => {
+                    if (h.requeridos > 0 && h.diferencia < 0) {
+                        allDeficits.push({
+                            date: dateStr,
+                            hora: h.hora,
+                            requeridos: h.requeridos,
+                            asignados: h.asignados,
+                            deficit: Math.abs(h.diferencia)
+                        });
+                        totalDeficitHours += Math.abs(h.diferencia);
+                    }
+                });
+            });
+        }
+
+        hideLoading();
+
+        if (allDeficits.length === 0) {
+            // No deficits — submit directly
+            submitValidationPassed = true;
+            form.submit();
+            return;
+        }
+
+        // Show deficit confirmation modal
+        showDeficitModal(allDeficits, totalDeficitHours, form);
+    } catch(e) {
+        hideLoading();
+        // On error, allow submit anyway
+        submitValidationPassed = true;
+        form.submit();
+    }
+}
+
+async function refreshCoveragePanel() {
+    const container = document.getElementById('coverageBarsContent');
+    if (!container) return;
+
+    const dateSelect = document.querySelector('.date-picker-form select[name="date"]');
+    const currentDate = dateSelect ? dateSelect.value : null;
+    if (!currentDate) return;
+
+    try {
+        const res = await fetch(BASE_URL + '/api/schedules/' + SCHEDULE_ID_FOR_COVERAGE + '/coverage-check?date=' + currentDate);
+        const data = await res.json();
+        if (!data.success) return;
+
+        let html = '';
+        data.hourly.forEach(function(h) {
+            let barColor = '#e2e8f0', barPct = 0;
+            if (h.requeridos === 0 && h.asignados === 0) {
+                barColor = '#e2e8f0'; barPct = 0;
+            } else if (h.requeridos === 0) {
+                barColor = '#fbbf24'; barPct = 100;
+            } else if (h.diferencia < 0) {
+                barColor = '#ef4444'; barPct = Math.min(100, (h.asignados / h.requeridos) * 100);
+            } else if (h.diferencia > 0) {
+                barColor = '#fbbf24'; barPct = 100;
+            } else {
+                barColor = '#22c55e'; barPct = 100;
+            }
+            const sign = h.diferencia >= 0 ? '+' : '';
+            const title = String(h.hora).padStart(2,'0') + ':00 — ' + h.asignados + '/' + h.requeridos + ' (' + sign + h.diferencia + ')';
+            html += '<div class="coverage-bar-col" title="' + title + '">';
+            html += '<div class="coverage-bar" style="height:' + Math.max(4, barPct) + 'px;background:' + barColor + ';"></div>';
+            html += '<span class="coverage-bar-label">' + String(h.hora).padStart(2,'0') + '</span>';
+            html += '<span class="coverage-bar-val" style="color:' + barColor + '">' + sign + h.diferencia + '</span>';
+            html += '</div>';
+        });
+        container.innerHTML = html;
+    } catch(e) { /* ignore */ }
+}
+
+function showDeficitModal(deficits, totalDeficit, form) {
+    // Group by date
+    const byDate = {};
+    deficits.forEach(d => {
+        if (!byDate[d.date]) byDate[d.date] = [];
+        byDate[d.date].push(d);
+    });
+
+    let listHtml = '';
+    for (const [date, items] of Object.entries(byDate)) {
+        const dateLabel = new Date(date + 'T12:00:00').toLocaleDateString('es-EC', {weekday:'short', day:'2-digit', month:'2-digit'});
+        listHtml += '<div style="font-weight:600;font-size:12px;color:#475569;margin-top:8px;">' + dateLabel + '</div>';
+        items.forEach(item => {
+            listHtml += '<div class="deficit-item"><span class="deficit-item-hora">' + String(item.hora).padStart(2,'0') + ':00</span><span class="deficit-item-val">-' + item.deficit + ' (' + item.asignados + '/' + item.requeridos + ')</span></div>';
+        });
+    }
+
+    const datesAffected = Object.keys(byDate).length;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'deficit-modal-overlay';
+    overlay.id = 'deficitModal';
+    overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = '<div class="deficit-modal">' +
+        '<h3>Deficit de cobertura detectado</h3>' +
+        '<p>Se encontraron <b>' + deficits.length + ' horas con deficit</b> en ' + datesAffected + ' dia(s). Total deficit: <b>' + totalDeficit + ' asesores-hora</b>.</p>' +
+        '<div class="deficit-list">' + listHtml + '</div>' +
+        '<div class="deficit-actions">' +
+        '<button class="deficit-btn deficit-btn-cancel" onclick="this.closest(\'.deficit-modal-overlay\').remove()">Cancelar</button>' +
+        '<button class="deficit-btn deficit-btn-confirm" onclick="submitValidationPassed=true;document.getElementById(\'formSubmitSchedule\').submit();">Enviar de todas formas</button>' +
+        '</div></div>';
+
+    document.body.appendChild(overlay);
+}
+</script>
+COVERAGE_SCRIPT;
+
+$scheduleIdForCoverage = (int)$schedule['id'];
+$extraScripts[] = "<script>const SCHEDULE_ID_FOR_COVERAGE = {$scheduleIdForCoverage};</script>";
 
 $extraStyles = [];
 $extraStyles[] = <<<'STYLE'
@@ -2627,6 +2895,45 @@ $extraStyles[] = <<<'STYLE'
             grid-template-columns: repeat(2, 1fr);
         }
     }
+
+    /* Coverage Real-time Panel */
+    .coverage-realtime-panel .panel-head { cursor: default; }
+    .coverage-bar-col {
+        display: flex; flex-direction: column; align-items: center;
+        flex: 1; min-width: 28px;
+    }
+    .coverage-bar {
+        width: 100%; max-width: 24px; min-height: 4px;
+        border-radius: 3px 3px 0 0; transition: height 0.3s;
+    }
+    .coverage-bar-label { font-size: 10px; color: #94a3b8; margin-top: 4px; }
+    .coverage-bar-val { font-size: 10px; font-weight: 600; }
+
+    /* Coverage deficit confirmation modal */
+    .deficit-modal-overlay {
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .deficit-modal {
+        background: #fff; border-radius: 12px; width: 90%; max-width: 500px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.2); padding: 24px;
+    }
+    .deficit-modal h3 { margin: 0 0 12px; font-size: 18px; color: #dc2626; }
+    .deficit-modal p { font-size: 14px; color: #334155; margin: 0 0 16px; }
+    .deficit-list { max-height: 200px; overflow-y: auto; margin-bottom: 16px; }
+    .deficit-item {
+        display: flex; justify-content: space-between; padding: 6px 0;
+        border-bottom: 1px solid #f1f5f9; font-size: 13px;
+    }
+    .deficit-item-hora { color: #64748b; }
+    .deficit-item-val { color: #dc2626; font-weight: 600; }
+    .deficit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .deficit-btn { padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; }
+    .deficit-btn-cancel { background: #f1f5f9; color: #475569; }
+    .deficit-btn-cancel:hover { background: #e2e8f0; }
+    .deficit-btn-confirm { background: #dc2626; color: #fff; }
+    .deficit-btn-confirm:hover { background: #b91c1c; }
 
     @media (max-width: 700px) {
         .stats-grid {

@@ -4,6 +4,41 @@ Todos los cambios notables del proyecto se documentan en este archivo.
 
 ---
 
+## [1.5.0] - 2026-04-15
+
+### Fase 2 — Funcionalidades Core: Auditoria + Reemplazos Asistidos + Alertas Deficit
+
+#### 2.1 Auditoria de Cambios (Audit Log)
+- **Tabla `audit_log`**: Nueva tabla con indices compuestos para consultas por entidad y usuario (`sql/migrations/007_audit_log.sql`)
+- **AuditService**: Servicio estatico para registrar acciones con datos antes/despues en formato JSONB, paginacion, filtros y exportacion CSV
+- **AuditController**: Pagina `/audit-log` con filtros (usuario, entidad, fecha), paginacion 30/pagina, modal de detalle JSON lado a lado, exportacion CSV
+- **Integracion en controladores existentes**:
+  - `ScheduleController::submit()` — registra cambio a estado 'enviado'
+  - `ScheduleController::approve()` — registra cambio a estado 'aprobado'
+  - `ScheduleController::reject()` — registra cambio a estado 'rechazado' con nota
+  - `ScheduleController::updateAssignments()` — registra ediciones de turnos
+  - `ScheduleController::saveAttendance()` — registra cambios de asistencia
+  - `AdvisorController::store()` — registra creacion de asesor
+  - `AdvisorController::update()` — registra actualizacion de asesor
+- **Item en sidebar**: 'Auditoria' visible solo para admin/gerente
+- **Historial en vista de horario**: Panel colapsable con ultimos cambios del schedule via API `/api/audit/schedule/{id}`
+- **3 rutas nuevas**: `GET /audit-log`, `GET /audit-log/export`, `GET /api/audit/schedule/{id}`
+
+#### 2.2 Flujo de Ausencias y Reemplazos Asistido
+- **suggestReplacements()**: Endpoint POST que busca candidatos elegibles para cubrir ausencia, usando logica del ScheduleBuilder (misma campana, activo, VPN si nocturno, max_horas_dia, sin restriccion medica), ordenados por menos horas acumuladas en el mes
+- **applyReplacement()**: Endpoint POST que crea shift_assignments tipo 'replanif', registra en replanning_log y notifica a coordinadores
+- **Modal de reemplazo en tracking**: Al marcar asesor como 'ausente' aparece boton 'R' que abre modal con horas afectadas y lista de candidatos sugeridos con estadisticas (horas mes, horas hoy, disponibles, badge VPN)
+- **2 rutas nuevas**: `POST /schedules/suggest-replacements`, `POST /schedules/apply-replacement`
+
+#### 2.3 Alertas de Deficit en Tiempo Real
+- **Panel de cobertura en vista diaria**: Barras hora a hora con colores (verde=cubierto, rojo=deficit, amarillo=sobrecobertura) en la vista diaria y editor del horario
+- **coverageCheck()**: Endpoint API GET que devuelve cobertura vs requerimiento hora a hora para un dia especifico
+- **Actualizacion automatica**: El panel de cobertura se actualiza despues de cada edicion guardada en el editor
+- **Validacion pre-envio**: Al hacer clic en 'Enviar a aprobacion' se verifica cobertura de todos los dias; si hay deficits muestra modal de confirmacion con resumen detallado antes de proceder
+- **1 ruta nueva**: `GET /api/schedules/{id}/coverage-check`
+
+---
+
 ## [1.4.0] - 2026-04-15
 
 ### Fase 1 — Notificaciones In-App + Dashboard con Graficas + Exportacion PDF

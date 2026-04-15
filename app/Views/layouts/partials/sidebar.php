@@ -121,6 +121,19 @@ $currentPage = $currentPage ?? '';
                         </a>
                     </div>
 
+                    <?php if (in_array($user['rol'] ?? '', ['admin', 'gerente'], true)): ?>
+                    <!-- Auditoria -->
+                    <div class="menu-item">
+                        <a class="menu-link <?= $currentPage === 'audit' ? 'active' : '' ?>"
+                           href="<?= BASE_URL ?>/audit-log">
+                            <span class="menu-icon">
+                                <i class="ki-outline ki-shield-tick fs-2"></i>
+                            </span>
+                            <span class="menu-title">Auditoria</span>
+                        </a>
+                    </div>
+                    <?php endif; ?>
+
                     <!-- Configuración -->
                     <div class="menu-item pt-5">
                         <div class="menu-content">

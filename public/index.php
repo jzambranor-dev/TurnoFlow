@@ -122,6 +122,27 @@ if (str_starts_with($uri, '/api/')) {
             }
         }
 
+        // API - Coverage check de un schedule
+        if ($method === 'GET' && preg_match('#^/api/schedules/(\d+)/coverage-check$#', $uri, $matches)) {
+            if (!isset($_SESSION['user'])) {
+                http_response_code(401);
+                echo json_encode(['success' => false, 'error' => 'No autenticado']);
+                exit;
+            }
+            require_once APP_PATH . '/Controllers/ScheduleController.php';
+            $controller = new App\Controllers\ScheduleController();
+            $controller->coverageCheck((int)$matches[1]);
+            exit;
+        }
+
+        // API - Historial de auditoria de un schedule
+        if ($method === 'GET' && preg_match('#^/api/audit/schedule/(\d+)$#', $uri, $matches)) {
+            require_once APP_PATH . '/Controllers/AuditController.php';
+            $controller = new App\Controllers\AuditController();
+            $controller->scheduleHistory((int)$matches[1]);
+            exit;
+        }
+
         // API - Ruta no encontrada
         http_response_code(404);
         echo json_encode(['success' => false, 'error' => 'Endpoint no encontrado']);
@@ -449,6 +470,21 @@ if ($routeKey === 'GET /changelog') {
     exit;
 }
 
+// Auditoria
+if ($routeKey === 'GET /audit-log') {
+    require_once APP_PATH . '/Controllers/AuditController.php';
+    $controller = new App\Controllers\AuditController();
+    $controller->index();
+    exit;
+}
+
+if ($routeKey === 'GET /audit-log/export') {
+    require_once APP_PATH . '/Controllers/AuditController.php';
+    $controller = new App\Controllers\AuditController();
+    $controller->export();
+    exit;
+}
+
 // Roles
 if ($routeKey === 'GET /roles') {
     require_once APP_PATH . '/Controllers/RoleController.php';
@@ -619,6 +655,22 @@ if ($method === 'POST' && preg_match('#^/users/(\d+)/toggle-status$#', $uri, $ma
     require_once APP_PATH . '/Controllers/UserController.php';
     $controller = new App\Controllers\UserController();
     $controller->toggleStatus((int)$matches[1]);
+    exit;
+}
+
+// Horarios - sugerir reemplazos
+if ($routeKey === 'POST /schedules/suggest-replacements') {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->suggestReplacements();
+    exit;
+}
+
+// Horarios - aplicar reemplazo
+if ($routeKey === 'POST /schedules/apply-replacement') {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->applyReplacement();
     exit;
 }
 

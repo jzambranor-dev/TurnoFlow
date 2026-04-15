@@ -330,6 +330,31 @@ ob_start();
             <input type="text" id="pickerNotas" placeholder="Notas (opcional)" maxlength="200">
         </div>
     </div>
+
+    <!-- Modal de Reemplazo -->
+    <div class="replacement-modal-overlay" id="replacementModal" style="display:none;" onclick="if(event.target===this)closeReplacementModal()">
+        <div class="replacement-modal">
+            <div class="repl-modal-header">
+                <h3>Gestionar Reemplazo</h3>
+                <button type="button" onclick="closeReplacementModal()" class="repl-modal-close">&times;</button>
+            </div>
+            <div class="repl-modal-body">
+                <div id="replInfo" style="margin-bottom:16px;">
+                    <p id="replAdvisorName" style="font-weight:600;font-size:15px;color:#1e293b;margin:0 0 4px;"></p>
+                    <p id="replFecha" style="font-size:13px;color:#64748b;margin:0 0 8px;"></p>
+                    <div id="replHorasAfectadas" style="font-size:13px;color:#334155;"></div>
+                </div>
+                <div id="replLoading" style="text-align:center;padding:20px;color:#94a3b8;">Buscando candidatos...</div>
+                <div id="replCandidatos" style="display:none;">
+                    <h4 style="font-size:13px;text-transform:uppercase;color:#64748b;margin:0 0 10px;letter-spacing:0.5px;">Candidatos disponibles</h4>
+                    <div id="replCandidatosList"></div>
+                </div>
+                <div id="replNoCandidatos" style="display:none;text-align:center;padding:20px;color:#94a3b8;">
+                    No hay candidatos elegibles para cubrir estas horas.
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <?php
@@ -751,6 +776,8 @@ function selectStatus(status) {
 
     const key = pickerAdvisor + ':' + pickerDate;
     const notas = document.getElementById('pickerNotas').value.trim();
+    const savedAdvisor = pickerAdvisor;
+    const savedDate = pickerDate;
 
     pendingRecords[key] = {
         advisor_id: pickerAdvisor,
@@ -770,7 +797,11 @@ function selectStatus(status) {
             maternidad: { l: 'Mat', c: '#be185d', bg: '#fce7f3' }
         };
         const si = labels[status] || { l: '?', c: '#64748b', bg: '#f1f5f9' };
-        cell.innerHTML = '<span class="cell-status" style="background:' + si.bg + ';color:' + si.c + ';" onclick="openStatusPicker(this,' + pickerAdvisor + ',\'' + pickerDate + '\')">' + si.l + '</span>';
+        let html = '<span class="cell-status" style="background:' + si.bg + ';color:' + si.c + ';" onclick="openStatusPicker(this,' + pickerAdvisor + ',\'' + pickerDate + '\')">' + si.l + '</span>';
+        if (status === 'ausente') {
+            html += '<button type="button" class="btn-repl-mini" onclick="event.stopPropagation();openReplacementModal(' + savedAdvisor + ',\'' + savedDate + '\')" title="Gestionar Reemplazo">R</button>';
+        }
+        cell.innerHTML = html;
         cell.dataset.status = status;
         cell.classList.remove('has-checkin');
         if (notas) cell.title = notas;
@@ -881,6 +912,118 @@ async function saveTracking() {
         btn.disabled = Object.keys(pendingRecords).length === 0;
     }
 }
+
+// ========== Replacement Modal ==========
+let replAdvisorId = null;
+let replDate = null;
+
+async function openReplacementModal(advisorId, fecha) {
+    replAdvisorId = advisorId;
+    replDate = fecha;
+
+    // Get advisor name from table
+    const row = document.querySelector('.track-cell[data-advisor="' + advisorId + '"]');
+    const advisorName = row ? row.closest('tr').querySelector('.advisor-name').textContent.trim() : 'Asesor #' + advisorId;
+
+    document.getElementById('replAdvisorName').textContent = advisorName;
+    document.getElementById('replFecha').textContent = 'Fecha: ' + fecha;
+    document.getElementById('replHorasAfectadas').innerHTML = '';
+    document.getElementById('replLoading').style.display = 'block';
+    document.getElementById('replCandidatos').style.display = 'none';
+    document.getElementById('replNoCandidatos').style.display = 'none';
+    document.getElementById('replacementModal').style.display = 'flex';
+
+    try {
+        const res = await fetch(TRACKING_BASE + '/schedules/suggest-replacements', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+            body: JSON.stringify({ schedule_id: scheduleId, advisor_id: advisorId, fecha: fecha })
+        });
+        const data = await res.json();
+
+        document.getElementById('replLoading').style.display = 'none';
+
+        if (!data.success) {
+            document.getElementById('replNoCandidatos').style.display = 'block';
+            document.getElementById('replNoCandidatos').textContent = data.error || 'Error al buscar candidatos';
+            return;
+        }
+
+        // Show affected hours
+        const horasHtml = data.horas_afectadas.map(function(h) {
+            return '<span style="display:inline-block;padding:2px 8px;background:#fee2e2;color:#dc2626;border-radius:4px;font-size:12px;margin:2px;">' + String(h.hora).padStart(2, '0') + ':00</span>';
+        }).join('');
+        document.getElementById('replHorasAfectadas').innerHTML = '<b>Horas afectadas (' + data.horas_necesarias + 'h):</b> ' + horasHtml;
+
+        if (data.candidatos.length === 0) {
+            document.getElementById('replNoCandidatos').style.display = 'block';
+            return;
+        }
+
+        // Build candidates list
+        let html = '';
+        data.candidatos.forEach(function(c) {
+            html += '<div class="repl-candidate">';
+            html += '<div class="repl-candidate-info">';
+            html += '<span class="repl-candidate-name">' + c.nombre + '</span>';
+            if (c.tiene_vpn) html += ' <span class="repl-badge repl-badge-vpn">VPN</span>';
+            html += '<div class="repl-candidate-stats">';
+            html += '<span>Mes: ' + c.horas_mes + 'h</span>';
+            html += '<span>Hoy: ' + c.horas_hoy + 'h</span>';
+            html += '<span style="color:#16a34a;font-weight:600;">Disponible: ' + c.horas_disponibles_hoy + 'h</span>';
+            html += '</div></div>';
+            html += '<button type="button" class="btn-apply-repl" onclick="applyReplacement(' + c.id + ', \'' + c.nombre.replace(/'/g, '\\\'') + '\')">Asignar</button>';
+            html += '</div>';
+        });
+        document.getElementById('replCandidatosList').innerHTML = html;
+        document.getElementById('replCandidatos').style.display = 'block';
+    } catch(e) {
+        document.getElementById('replLoading').style.display = 'none';
+        document.getElementById('replNoCandidatos').style.display = 'block';
+        document.getElementById('replNoCandidatos').textContent = 'Error de conexion';
+    }
+}
+
+function closeReplacementModal() {
+    document.getElementById('replacementModal').style.display = 'none';
+    replAdvisorId = null;
+    replDate = null;
+}
+
+async function applyReplacement(reemplazoId, nombre) {
+    if (!replAdvisorId || !replDate) return;
+
+    showLoading('Aplicando reemplazo...');
+
+    try {
+        const res = await fetch(TRACKING_BASE + '/schedules/apply-replacement', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+            body: JSON.stringify({
+                schedule_id: scheduleId,
+                advisor_ausente_id: replAdvisorId,
+                advisor_reemplazo_id: reemplazoId,
+                fecha: replDate
+            })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            closeReplacementModal();
+            showToast('Reemplazo aplicado: ' + data.nombre_reemplazo + ' cubrira ' + data.assigned + ' hora(s).', 'success', 5000);
+        } else {
+            showToast(data.error || 'Error al aplicar reemplazo', 'error', 4500);
+        }
+    } catch(e) {
+        showToast('Error de conexion', 'error', 4500);
+    } finally {
+        hideLoading();
+    }
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeReplacementModal();
+});
 </script>
 <style>
 .spinner {
@@ -889,6 +1032,61 @@ async function saveTracking() {
     border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 6px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Replacement button mini */
+.btn-repl-mini {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; font-size: 10px; font-weight: 700;
+    background: #7c3aed; color: #fff; border: none; border-radius: 3px;
+    cursor: pointer; margin-left: 2px; vertical-align: middle;
+    line-height: 1;
+}
+.btn-repl-mini:hover { background: #6d28d9; }
+
+/* Replacement Modal */
+.replacement-modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); z-index: 9999;
+    display: flex; align-items: center; justify-content: center;
+}
+.replacement-modal {
+    background: #fff; border-radius: 12px; width: 90%; max-width: 560px;
+    max-height: 80vh; display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+}
+.repl-modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 20px; border-bottom: 1px solid #e2e8f0;
+}
+.repl-modal-header h3 { margin: 0; font-size: 16px; color: #1e293b; }
+.repl-modal-close {
+    background: none; border: none; font-size: 24px; color: #94a3b8;
+    cursor: pointer; padding: 0 4px;
+}
+.repl-modal-close:hover { color: #1e293b; }
+.repl-modal-body { padding: 20px; overflow-y: auto; }
+
+.repl-candidate {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px;
+    margin-bottom: 8px; transition: border-color 0.15s;
+}
+.repl-candidate:hover { border-color: #7c3aed; }
+.repl-candidate-name { font-weight: 600; font-size: 14px; color: #1e293b; }
+.repl-candidate-stats {
+    display: flex; gap: 12px; font-size: 12px; color: #64748b; margin-top: 4px;
+}
+.repl-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; font-weight: 700; vertical-align: middle; margin-left: 6px;
+}
+.repl-badge-vpn { background: #dcfce7; color: #16a34a; }
+.btn-apply-repl {
+    padding: 6px 14px; background: #7c3aed; color: #fff; border: none;
+    border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+    white-space: nowrap;
+}
+.btn-apply-repl:hover { background: #6d28d9; }
 </style>
 SCRIPT;
 

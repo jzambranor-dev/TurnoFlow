@@ -39,7 +39,12 @@
       "Bash(php test_dimensionamiento.php:*)",
       "Bash(php:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(find /c/xampp/htdocs/system-horario/TurnoFlow/sql/migrations -type f -name *.sql)",
+      "Bash(grep -E \"^if \\\\\\($routeKey|^if \\\\\\($method\" /c/xampp/htdocs/system-horario/TurnoFlow/public/index.php)",
+      "Bash(find /c/xampp/htdocs/system-horario/TurnoFlow/sql -name *.sql -type f)",
+      "Bash(grep -E \"if \\\\\\($routeKey|preg_match\" /c/xampp/htdocs/system-horario/TurnoFlow/public/index.php)",
+      "Bash(git push:*)"
     ]
   }
 }
