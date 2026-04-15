@@ -1972,15 +1972,7 @@ class ScheduleController
         $user = $_SESSION['user'];
         $pdo = Database::getConnection();
 
-        $stmt = $pdo->prepare("
-            SELECT s.*, c.supervisor_id, c.nombre AS campaign_nombre
-            FROM schedules s
-            JOIN campaigns c ON c.id = s.campaign_id
-            WHERE s.id = :id
-        ");
-        $stmt->execute([':id' => $id]);
-        $schedule = $stmt->fetch();
-
+        $schedule = $this->getScheduleWithOwnership($pdo, $id);
         if (!$schedule || (!AuthService::canManageAllCampaigns($user) && (int)$schedule['supervisor_id'] !== (int)$user['id'])) {
             $this->setFlash('error', 'Sin permisos para exportar este horario');
             header('Location: ' . BASE_URL . '/schedules');

@@ -39,7 +39,7 @@ class DashboardController
             FROM shift_assignments sa
             JOIN schedules s ON s.id = sa.schedule_id
             JOIN campaigns c ON c.id = s.campaign_id
-            WHERE sa.fecha >= CURRENT_DATE - :days * INTERVAL '1 day'
+            WHERE sa.fecha >= CURRENT_DATE - CAST(:days AS INTEGER) * INTERVAL '1 day'
               AND sa.tipo != 'break'
               {$campaignFilter}
             GROUP BY sa.fecha
@@ -75,7 +75,7 @@ class DashboardController
                    COUNT(*) as total
             FROM schedules s
             JOIN campaigns c ON c.id = s.campaign_id
-            WHERE s.created_at >= NOW() - :months * INTERVAL '1 month'
+            WHERE s.created_at >= NOW() - CAST(:months AS INTEGER) * INTERVAL '1 month'
               {$roleFilter}
             GROUP BY s.status, TO_CHAR(s.created_at, 'YYYY-MM')
             ORDER BY mes
