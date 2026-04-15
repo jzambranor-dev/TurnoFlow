@@ -4,6 +4,38 @@ Todos los cambios notables del proyecto se documentan en este archivo.
 
 ---
 
+## [1.4.0] - 2026-04-15
+
+### Fase 1 — Notificaciones In-App + Dashboard con Graficas + Exportacion PDF
+
+#### 1.1 Sistema de Notificaciones In-App
+- **Tabla `notifications`**: Nueva tabla con indice compuesto para consultas rapidas (`sql/migrations/006_notifications.sql`)
+- **NotificationService**: Servicio estatico para enviar notificaciones a usuarios individuales o por permiso, con paginacion y conteo de no leidas
+- **NotificationController**: Endpoints para listar (paginado), marcar leida, marcar todas leidas, y API JSON de no leidas
+- **Campana en header**: Badge con contador de notificaciones no leidas, dropdown con ultimas 5, actualizacion automatica cada 60 segundos
+- **Vista `/notifications`**: Lista completa con iconos por tipo, destacado de no leidas, paginacion, boton marcar todas como leidas
+- **Disparadores automaticos**:
+  - `ScheduleController::submit()` → notifica a todos los usuarios con permiso `schedules.approve`
+  - `ScheduleController::approve()` → notifica al supervisor que genero el horario
+  - `ScheduleController::reject()` → notifica al supervisor con motivo de rechazo
+- **4 rutas nuevas**: `GET /notifications`, `POST /notifications/{id}/read`, `POST /notifications/read-all`, `GET /api/notifications/unread`
+- **Item en sidebar**: Acceso directo a notificaciones para todos los roles
+- **Meta CSRF**: Tag meta con token CSRF en layout principal para peticiones AJAX
+
+#### 1.2 Dashboard con Graficas (Chart.js)
+- **3 endpoints API JSON**: `/api/dashboard/coverage-trend`, `/api/dashboard/schedule-stats`, `/api/dashboard/advisor-hours`
+- **Graficas admin/gerente/coordinador**: Barras de horarios por estado (ultimos 3 meses) + dona de asesores por campana
+- **Grafica supervisor**: Barras horizontales de horas asignadas vs meta por asesor del mes actual
+- **Chart.js via CDN**: Fallback automatico si no esta en dist/
+
+#### 1.3 Exportacion PDF de Horarios
+- **mPDF v8.3**: Instalado via Composer (`mpdf/mpdf`)
+- **PdfService**: Genera PDF landscape A4 del horario mensual con tabla asesores x dias, colores por tipo de turno, leyenda y totales
+- **Boton "Descargar PDF"**: En la vista de detalle del horario (`/schedules/{id}`)
+- **Ruta**: `GET /schedules/{id}/export-pdf`
+
+---
+
 ## [1.3.0] - 2026-03-12
 
 ### Asesores Compartidos Multi-Campaña (Back)

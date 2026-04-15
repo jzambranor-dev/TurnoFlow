@@ -15,6 +15,8 @@ else $saludo = 'Buenas noches';
 $meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 $mesActual = $meses[(int)date('n') - 1];
 
+$appUrl = BASE_URL;
+
 $extraStyles = [];
 $extraStyles[] = <<<'STYLE'
 <style>
@@ -247,6 +249,22 @@ ob_start();
 </div>
 <?php endif; ?>
 
+<!-- Graficas -->
+<div class="data-grid" style="margin-top: 24px;">
+    <div class="data-panel">
+        <div class="panel-header"><div class="panel-title">Horarios por Estado (ultimos 3 meses)</div></div>
+        <div class="panel-body" style="padding: 16px;">
+            <canvas id="chartScheduleStats" height="220"></canvas>
+        </div>
+    </div>
+    <div class="data-panel">
+        <div class="panel-header"><div class="panel-title">Asesores por Campaña</div></div>
+        <div class="panel-body" style="padding: 16px;">
+            <canvas id="chartAdvisorsDist" height="220"></canvas>
+        </div>
+    </div>
+</div>
+
 <?php elseif ($rol === 'supervisor'): ?>
 <!-- ==================== DASHBOARD SUPERVISOR ==================== -->
 
@@ -329,6 +347,14 @@ ob_start();
             <?php endforeach; ?>
             <?php endif; ?>
         </div>
+    </div>
+</div>
+
+<!-- Grafica supervisor: horas por asesor vs meta -->
+<div class="data-panel" style="margin-top: 24px;">
+    <div class="panel-header"><div class="panel-title">Horas Asignadas vs Meta (este mes)</div></div>
+    <div class="panel-body" style="padding: 16px;">
+        <canvas id="chartAdvisorHours" height="280"></canvas>
     </div>
 </div>
 
@@ -422,5 +448,98 @@ $porcentaje = min(100, round(($horasTrabajadas / $horasMeta) * 100));
 
 <?php
 $content = ob_get_clean();
+
+// Chart.js CDN + scripts para graficas
+$extraScripts = $extraScripts ?? [];
+$extraScripts[] = '<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>';
+$extraScripts[] = "<script>const DASH_BASE_URL = '{$appUrl}';</script>";
+
+if (in_array($rol, ['admin', 'gerente', 'coordinador'])) {
+    // Preparar datos de campanas para donut
+    $campaignLabels = [];
+    $campaignCounts = [];
+    $campaignColors = ['#2563eb', '#15803d', '#d97706', '#7c3aed', '#dc2626', '#059669', '#ea580c', '#0891b2'];
+    foreach (($recentCampaigns ?? []) as $i => $c) {
+        $campaignLabels[] = $c['nombre'];
+        $campaignCounts[] = (int)$c['total_asesores'];
+    }
+    $labelsJson = json_encode($campaignLabels);
+    $countsJson = json_encode($campaignCounts);
+    $colorsJson = json_encode(array_slice($campaignColors, 0, count($campaignLabels)));
+
+    $extraScripts[] = <<<SCRIPT
+<script>
+(async function() {
+    // Grafica barras: horarios por estado
+    try {
+        const res = await fetch(DASH_BASE_URL + '/api/dashboard/schedule-stats?months=3');
+        const json = await res.json();
+        if (json.success) {
+            const raw = json.data;
+            const meses = [...new Set(raw.map(r => r.mes))].sort();
+            const estados = ['borrador', 'enviado', 'aprobado', 'rechazado'];
+            const colores = { borrador: '#94a3b8', enviado: '#3b82f6', aprobado: '#22c55e', rechazado: '#ef4444' };
+            const datasets = estados.map(st => ({
+                label: st.charAt(0).toUpperCase() + st.slice(1),
+                data: meses.map(m => { const r = raw.find(x => x.mes === m && x.status === st); return r ? r.total : 0; }),
+                backgroundColor: colores[st],
+                borderRadius: 4
+            }));
+            new Chart(document.getElementById('chartScheduleStats'), {
+                type: 'bar',
+                data: { labels: meses, datasets },
+                options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+            });
+        }
+    } catch(e) {}
+
+    // Donut: asesores por campana
+    const labels = {$labelsJson};
+    const counts = {$countsJson};
+    const colors = {$colorsJson};
+    if (labels.length > 0) {
+        new Chart(document.getElementById('chartAdvisorsDist'), {
+            type: 'doughnut',
+            data: { labels, datasets: [{ data: counts, backgroundColor: colors, borderWidth: 0 }] },
+            options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+        });
+    }
+})();
+</script>
+SCRIPT;
+} elseif ($rol === 'supervisor') {
+    $extraScripts[] = <<<'SCRIPT'
+<script>
+(async function() {
+    try {
+        const res = await fetch(DASH_BASE_URL + '/api/dashboard/advisor-hours');
+        const json = await res.json();
+        if (json.success && json.data.length) {
+            const labels = json.data.map(r => r.nombre.length > 20 ? r.nombre.substring(0,18) + '...' : r.nombre);
+            const horas = json.data.map(r => parseInt(r.horas_asignadas));
+            const meta = json.meta;
+            new Chart(document.getElementById('chartAdvisorHours'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Horas asignadas', data: horas, backgroundColor: '#3b82f6', borderRadius: 4 },
+                        { label: 'Meta', data: Array(horas.length).fill(meta), type: 'line', borderColor: '#ef4444', borderDash: [5,5], pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    plugins: { legend: { position: 'bottom' } },
+                    scales: { x: { beginAtZero: true } }
+                }
+            });
+        }
+    } catch(e) {}
+})();
+</script>
+SCRIPT;
+}
+
 include APP_PATH . '/Views/layouts/main.php';
 ?>

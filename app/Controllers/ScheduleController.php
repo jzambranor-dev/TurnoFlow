@@ -14,6 +14,8 @@ use App\Services\AuthService;
 
 require_once APP_PATH . '/Services/AuthService.php';
 require_once APP_PATH . '/Services/ScheduleBuilder.php';
+require_once APP_PATH . '/Services/NotificationService.php';
+require_once APP_PATH . '/Services/PdfService.php';
 
 class ScheduleController
 {
@@ -1033,6 +1035,20 @@ class ScheduleController
         ");
         $stmt->execute([':id' => $id]);
 
+        // Notificar a usuarios con permiso de aprobar
+        $campaignName = '';
+        $stmtC = $pdo->prepare("SELECT c.nombre FROM campaigns c JOIN schedules s ON s.campaign_id = c.id WHERE s.id = :id");
+        $stmtC->execute([':id' => $id]);
+        $campaignName = $stmtC->fetchColumn() ?: 'Desconocida';
+
+        \App\Services\NotificationService::sendToPermission(
+            'schedules.approve',
+            'horario_enviado',
+            'Horario enviado para aprobacion',
+            "El horario de {$campaignName} ({$schedule['periodo_mes']}/{$schedule['periodo_anio']}) fue enviado por " . ($user['nombre'] ?? '') . ' ' . ($user['apellido'] ?? ''),
+            "/schedules/{$id}"
+        );
+
         header('Location: ' . BASE_URL . '/schedules');
         exit;
     }
@@ -1064,6 +1080,22 @@ class ScheduleController
             ':aprobado_por' => $user['id']
         ]);
 
+        // Notificar al supervisor dueno del horario
+        if (!empty($schedule['generado_por'])) {
+            $campaignName = '';
+            $stmtC = $pdo->prepare("SELECT c.nombre FROM campaigns c JOIN schedules s ON s.campaign_id = c.id WHERE s.id = :id");
+            $stmtC->execute([':id' => $id]);
+            $campaignName = $stmtC->fetchColumn() ?: 'Desconocida';
+
+            \App\Services\NotificationService::send(
+                (int)$schedule['generado_por'],
+                'horario_aprobado',
+                'Horario aprobado',
+                "El horario de {$campaignName} fue aprobado por " . ($user['nombre'] ?? '') . ' ' . ($user['apellido'] ?? ''),
+                "/schedules/{$id}"
+            );
+        }
+
         header('Location: ' . BASE_URL . '/schedules');
         exit;
     }
@@ -1083,11 +1115,34 @@ class ScheduleController
             exit;
         }
 
+        $nota = trim((string)($_POST['nota_rechazo'] ?? ''));
+
         $stmt = $pdo->prepare("
             UPDATE schedules SET status = 'rechazado'
             WHERE id = :id AND status = 'enviado'
         ");
         $stmt->execute([':id' => $id]);
+
+        // Notificar al supervisor dueno del horario
+        if (!empty($schedule['generado_por'])) {
+            $campaignName = '';
+            $stmtC = $pdo->prepare("SELECT c.nombre FROM campaigns c JOIN schedules s ON s.campaign_id = c.id WHERE s.id = :id");
+            $stmtC->execute([':id' => $id]);
+            $campaignName = $stmtC->fetchColumn() ?: 'Desconocida';
+
+            $mensaje = "El horario de {$campaignName} fue rechazado por " . ($user['nombre'] ?? '') . ' ' . ($user['apellido'] ?? '');
+            if ($nota !== '') {
+                $mensaje .= ". Motivo: {$nota}";
+            }
+
+            \App\Services\NotificationService::send(
+                (int)$schedule['generado_por'],
+                'horario_rechazado',
+                'Horario rechazado',
+                $mensaje,
+                "/schedules/{$id}"
+            );
+        }
 
         header('Location: ' . BASE_URL . '/schedules');
         exit;
@@ -1678,7 +1733,7 @@ class ScheduleController
     private function getScheduleWithOwnership(\PDO $pdo, int $id): ?array
     {
         $stmt = $pdo->prepare("
-            SELECT s.*, c.supervisor_id
+            SELECT s.*, c.supervisor_id, c.nombre as campaign_nombre
             FROM schedules s
             JOIN campaigns c ON c.id = s.campaign_id
             WHERE s.id = :id
@@ -1905,6 +1960,47 @@ class ScheduleController
         }
 
         return max(0, (int)round((float)$normalized));
+    }
+
+    /**
+     * Exportar horario mensual a PDF
+     */
+    public function exportPdf(int $id): void
+    {
+        AuthService::requirePermission('schedules.view');
+
+        $user = $_SESSION['user'];
+        $pdo = Database::getConnection();
+
+        $stmt = $pdo->prepare("
+            SELECT s.*, c.supervisor_id, c.nombre AS campaign_nombre
+            FROM schedules s
+            JOIN campaigns c ON c.id = s.campaign_id
+            WHERE s.id = :id
+        ");
+        $stmt->execute([':id' => $id]);
+        $schedule = $stmt->fetch();
+
+        if (!$schedule || (!AuthService::canManageAllCampaigns($user) && (int)$schedule['supervisor_id'] !== (int)$user['id'])) {
+            $this->setFlash('error', 'Sin permisos para exportar este horario');
+            header('Location: ' . BASE_URL . '/schedules');
+            exit;
+        }
+
+        require_once APP_PATH . '/Services/PdfService.php';
+
+        $mpdf = \App\Services\PdfService::generateSchedulePdf($id);
+        if (!$mpdf) {
+            $this->setFlash('error', 'No se pudo generar el PDF');
+            header('Location: ' . BASE_URL . '/schedules/' . $id);
+            exit;
+        }
+
+        $filename = 'Horario_' . preg_replace('/[^a-zA-Z0-9_]/', '_', (string)($schedule['campaign_nombre'] ?? 'export'))
+            . '_' . $schedule['periodo_mes'] . '_' . $schedule['periodo_anio'] . '.pdf';
+
+        $mpdf->Output($filename, 'D');
+        exit;
     }
 
     private function setFlash(string $type, string $message): void

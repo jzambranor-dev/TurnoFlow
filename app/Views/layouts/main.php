@@ -29,6 +29,7 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= htmlspecialchars($pageTitle ?? 'Dashboard') ?> - TurnoFlow</title>
+    <meta name="csrf-token" content="<?= htmlspecialchars(\App\Services\CsrfService::token()) ?>">
 
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -40,6 +41,55 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
     <script src="<?= BASE_URL ?>/js/toast-loading.js"></script>
     <script src="<?= BASE_URL ?>/js/table-paginator.js" defer></script>
 
+    <style>
+        .notif-bell-wrapper { position: relative; }
+        .notif-badge {
+            position: absolute; top: 2px; right: 2px;
+            background: #ef4444; color: #fff; font-size: 0.65rem; font-weight: 700;
+            min-width: 18px; height: 18px; border-radius: 9px;
+            display: flex; align-items: center; justify-content: center;
+            padding: 0 4px; line-height: 1;
+        }
+        .notif-dropdown {
+            position: absolute; top: calc(100% + 8px); right: 0;
+            width: 360px; max-height: 440px;
+            background: var(--corp-white, #fff); border: 1px solid var(--corp-gray-200, #e5e7eb);
+            border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+            z-index: 1000; overflow: hidden;
+        }
+        .notif-dropdown-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 14px 16px; border-bottom: 1px solid var(--corp-gray-200, #e5e7eb);
+        }
+        .notif-dropdown-title { font-weight: 600; font-size: 0.95rem; color: var(--corp-gray-900, #111); }
+        .notif-dropdown-mark {
+            background: none; border: none; color: var(--corp-primary, #2563eb);
+            font-size: 0.8rem; cursor: pointer; font-weight: 500;
+        }
+        .notif-dropdown-mark:hover { text-decoration: underline; }
+        .notif-dropdown-body { max-height: 320px; overflow-y: auto; }
+        .notif-dropdown-item {
+            display: flex; gap: 12px; padding: 12px 16px;
+            border-bottom: 1px solid var(--corp-gray-100, #f3f4f6);
+            text-decoration: none; color: inherit; transition: background 0.1s;
+        }
+        .notif-dropdown-item:hover { background: var(--corp-gray-50, #f9fafb); }
+        .notif-dropdown-item.unread { background: #eff6ff; }
+        .notif-dropdown-item-icon {
+            width: 32px; height: 32px; border-radius: 8px;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .notif-dropdown-item-icon svg { width: 16px; height: 16px; }
+        .notif-dropdown-item-title { font-weight: 500; font-size: 0.85rem; color: var(--corp-gray-900, #111); }
+        .notif-dropdown-item-msg { font-size: 0.8rem; color: var(--corp-gray-500, #6b7280); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+        .notif-dropdown-item-time { font-size: 0.7rem; color: var(--corp-gray-400, #9ca3af); margin-top: 2px; }
+        .notif-dropdown-footer {
+            display: block; text-align: center; padding: 12px;
+            font-size: 0.85rem; font-weight: 500; color: var(--corp-primary, #2563eb);
+            text-decoration: none; border-top: 1px solid var(--corp-gray-200, #e5e7eb);
+        }
+        .notif-dropdown-footer:hover { background: var(--corp-gray-50, #f9fafb); }
+    </style>
     <?php if (!empty($extraStyles)) foreach ($extraStyles as $s) echo $s . "\n"; ?>
 </head>
 <body>
@@ -64,6 +114,11 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
             <a href="<?= BASE_URL ?>/dashboard" class="menu-item <?= $currentPage === 'dashboard' ? 'active' : '' ?>" data-title="Dashboard">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
                 <span class="menu-item-text">Dashboard</span>
+            </a>
+
+            <a href="<?= BASE_URL ?>/notifications" class="menu-item <?= $currentPage === 'notifications' ? 'active' : '' ?>" data-title="Notificaciones">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+                <span class="menu-item-text">Notificaciones</span>
             </a>
 
             <?php if ($isAsesor): ?>
@@ -151,9 +206,22 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
                 <span class="role-badge" style="background: <?= $rolColor ?>"><?= ucfirst($rol) ?></span>
             </div>
             <div class="header-right">
-                <button class="header-btn" title="Notificaciones">
-                    <svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
-                </button>
+                <div class="notif-bell-wrapper" style="position: relative;">
+                    <button class="header-btn" title="Notificaciones" id="notifBellBtn" onclick="toggleNotifDropdown()">
+                        <svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+                        <span class="notif-badge" id="notifBadge" style="display:none;">0</span>
+                    </button>
+                    <div class="notif-dropdown" id="notifDropdown" style="display:none;">
+                        <div class="notif-dropdown-header">
+                            <span class="notif-dropdown-title">Notificaciones</span>
+                            <button class="notif-dropdown-mark" id="notifMarkAllBtn" onclick="notifMarkAllRead(event)">Marcar leidas</button>
+                        </div>
+                        <div class="notif-dropdown-body" id="notifDropdownBody">
+                            <div style="padding: 24px; text-align: center; color: var(--corp-gray-400); font-size: 0.85rem;">Sin notificaciones nuevas</div>
+                        </div>
+                        <a href="<?= BASE_URL ?>/notifications" class="notif-dropdown-footer">Ver todas las notificaciones</a>
+                    </div>
+                </div>
             </div>
         </header>
 
@@ -203,6 +271,96 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
             sidebar.classList.add('collapsed');
             document.body.classList.add('sidebar-collapsed');
         }
+    </script>
+    <script>
+        const NOTIF_BASE = '<?= BASE_URL ?>';
+        const NOTIF_ICONS = {
+            'horario_enviado':    { path: 'M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z', color: '#2563eb' },
+            'horario_aprobado':   { path: 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z', color: '#15803d' },
+            'horario_rechazado':  { path: 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z', color: '#b91c1c' },
+            'ausencia_registrada': { path: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z', color: '#d97706' }
+        };
+
+        function getCsrfToken() {
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            return meta ? meta.content : '';
+        }
+
+        function toggleNotifDropdown() {
+            const dd = document.getElementById('notifDropdown');
+            dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+        }
+
+        document.addEventListener('click', function(e) {
+            const wrapper = document.querySelector('.notif-bell-wrapper');
+            if (wrapper && !wrapper.contains(e.target)) {
+                document.getElementById('notifDropdown').style.display = 'none';
+            }
+        });
+
+        function timeAgo(dateStr) {
+            const d = new Date(dateStr);
+            const now = new Date();
+            const diff = Math.floor((now - d) / 1000);
+            if (diff < 60) return 'Ahora';
+            if (diff < 3600) return Math.floor(diff / 60) + ' min';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h';
+            return Math.floor(diff / 86400) + 'd';
+        }
+
+        async function loadNotifications() {
+            try {
+                const res = await fetch(NOTIF_BASE + '/api/notifications/unread');
+                const data = await res.json();
+                if (!data.success) return;
+
+                const badge = document.getElementById('notifBadge');
+                if (data.count > 0) {
+                    badge.textContent = data.count > 99 ? '99+' : data.count;
+                    badge.style.display = 'flex';
+                } else {
+                    badge.style.display = 'none';
+                }
+
+                const body = document.getElementById('notifDropdownBody');
+                if (data.items.length === 0) {
+                    body.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--corp-gray-400); font-size: 0.85rem;">Sin notificaciones nuevas</div>';
+                    return;
+                }
+
+                body.innerHTML = data.items.map(n => {
+                    const icon = NOTIF_ICONS[n.tipo] || NOTIF_ICONS['horario_enviado'];
+                    const href = n.url ? NOTIF_BASE + n.url : NOTIF_BASE + '/notifications';
+                    return '<a href="' + href + '" class="notif-dropdown-item unread">'
+                        + '<div class="notif-dropdown-item-icon" style="background:' + icon.color + '20;">'
+                        + '<svg viewBox="0 0 24 24" fill="' + icon.color + '"><path d="' + icon.path + '"/></svg>'
+                        + '</div><div>'
+                        + '<div class="notif-dropdown-item-title">' + (n.titulo || '') + '</div>'
+                        + '<div class="notif-dropdown-item-msg">' + (n.mensaje || '') + '</div>'
+                        + '<div class="notif-dropdown-item-time">' + timeAgo(n.created_at) + '</div>'
+                        + '</div></a>';
+                }).join('');
+            } catch (e) { /* silenciar errores de red */ }
+        }
+
+        async function notifMarkAllRead(e) {
+            e.stopPropagation();
+            try {
+                const res = await fetch(NOTIF_BASE + '/notifications/read-all', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': getCsrfToken() }
+                });
+                const data = await res.json();
+                if (data.success) {
+                    loadNotifications();
+                    if (typeof showToast === 'function') showToast('Notificaciones marcadas como leidas', 'success');
+                }
+            } catch (e) { /* silenciar */ }
+        }
+
+        // Cargar al inicio y cada 60 segundos
+        loadNotifications();
+        setInterval(loadNotifications, 60000);
     </script>
     <?php if (!empty($extraScripts)) foreach ($extraScripts as $s) echo $s . "\n"; ?>
 </body>

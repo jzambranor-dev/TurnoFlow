@@ -34,6 +34,40 @@ $user = $_SESSION['user'] ?? null;
 
             <!-- User menu -->
             <div class="app-navbar flex-shrink-0">
+                <!-- Notifications Bell -->
+                <div class="app-navbar-item ms-1 ms-md-3">
+                    <div class="btn btn-icon btn-custom btn-icon-muted btn-active-light btn-active-color-primary w-35px h-35px position-relative"
+                         data-kt-menu-trigger="{default: 'click', lg: 'hover'}"
+                         data-kt-menu-attach="parent"
+                         data-kt-menu-placement="bottom-end"
+                         id="kt_notification_toggle">
+                        <i class="ki-outline ki-notification-on fs-2"></i>
+                        <span class="badge badge-circle badge-danger position-absolute top-0 end-0 d-none"
+                              id="notification_badge" style="font-size: 0.65rem; min-width: 16px; height: 16px;">0</span>
+                    </div>
+
+                    <!-- Notifications dropdown -->
+                    <div class="menu menu-sub menu-sub-dropdown menu-column w-350px w-lg-375px"
+                         data-kt-menu="true" id="kt_notifications_menu">
+                        <div class="d-flex flex-column bgi-no-repeat rounded-top"
+                             style="background: linear-gradient(135deg, var(--corp-primary) 0%, #1e40af 100%);">
+                            <h3 class="text-white fw-semibold px-9 mt-10 mb-6">
+                                Notificaciones <span class="fs-8 opacity-75 ps-2" id="notif_count_label">0 nuevas</span>
+                            </h3>
+                        </div>
+                        <div class="scroll-y mh-325px py-3" id="notifications_list">
+                            <div class="d-flex flex-column px-9 py-10 text-center">
+                                <span class="text-muted fs-7">Cargando...</span>
+                            </div>
+                        </div>
+                        <div class="py-3 text-center border-top">
+                            <a href="<?= BASE_URL ?>/notifications" class="btn btn-color-gray-600 btn-active-color-primary">
+                                Ver todas <i class="ki-outline ki-arrow-right fs-5"></i>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="app-navbar-item ms-1 ms-md-4" id="kt_header_user_menu_toggle">
                     <div class="cursor-pointer symbol symbol-35px"
                          data-kt-menu-trigger="{default: 'click', lg: 'hover'}"

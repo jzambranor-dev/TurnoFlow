@@ -11,6 +11,131 @@ require_once APP_PATH . '/Services/AuthService.php';
 
 class DashboardController
 {
+    /**
+     * API JSON: Cobertura promedio vs requerimiento ultimos N dias
+     */
+    public function coverageTrend(): void
+    {
+        header('Content-Type: application/json');
+
+        $user = $_SESSION['user'];
+        $pdo = Database::getConnection();
+        $days = max(1, min(90, (int)($_GET['days'] ?? 30)));
+        $campaignId = !empty($_GET['campaign_id']) ? (int)$_GET['campaign_id'] : null;
+
+        $params = [':days' => $days];
+        $campaignFilter = '';
+        if ($campaignId) {
+            $campaignFilter = 'AND s.campaign_id = :cid';
+            $params[':cid'] = $campaignId;
+        } elseif ($user['rol'] === 'supervisor') {
+            $campaignFilter = 'AND c.supervisor_id = :uid';
+            $params[':uid'] = $user['id'];
+        }
+
+        $stmt = $pdo->prepare("
+            SELECT sa.fecha,
+                   COUNT(DISTINCT sa.advisor_id) as cobertura_promedio
+            FROM shift_assignments sa
+            JOIN schedules s ON s.id = sa.schedule_id
+            JOIN campaigns c ON c.id = s.campaign_id
+            WHERE sa.fecha >= CURRENT_DATE - :days * INTERVAL '1 day'
+              AND sa.tipo != 'break'
+              {$campaignFilter}
+            GROUP BY sa.fecha
+            ORDER BY sa.fecha
+        ");
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        echo json_encode(['success' => true, 'data' => $rows]);
+    }
+
+    /**
+     * API JSON: Horarios por estado ultimos N meses
+     */
+    public function scheduleStats(): void
+    {
+        header('Content-Type: application/json');
+
+        $user = $_SESSION['user'];
+        $pdo = Database::getConnection();
+        $months = max(1, min(12, (int)($_GET['months'] ?? 3)));
+
+        $roleFilter = '';
+        $params = [':months' => $months];
+        if ($user['rol'] === 'supervisor') {
+            $roleFilter = 'AND c.supervisor_id = :uid';
+            $params[':uid'] = $user['id'];
+        }
+
+        $stmt = $pdo->prepare("
+            SELECT s.status,
+                   TO_CHAR(s.created_at, 'YYYY-MM') as mes,
+                   COUNT(*) as total
+            FROM schedules s
+            JOIN campaigns c ON c.id = s.campaign_id
+            WHERE s.created_at >= NOW() - :months * INTERVAL '1 month'
+              {$roleFilter}
+            GROUP BY s.status, TO_CHAR(s.created_at, 'YYYY-MM')
+            ORDER BY mes
+        ");
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        echo json_encode(['success' => true, 'data' => $rows]);
+    }
+
+    /**
+     * API JSON: Horas asignadas por asesor vs meta del mes
+     */
+    public function advisorHours(): void
+    {
+        header('Content-Type: application/json');
+
+        $user = $_SESSION['user'];
+        $pdo = Database::getConnection();
+        $campaignId = !empty($_GET['campaign_id']) ? (int)$_GET['campaign_id'] : null;
+        $year = (int)($_GET['year'] ?? date('Y'));
+        $month = (int)($_GET['month'] ?? date('n'));
+
+        $params = [':year' => $year, ':month' => $month];
+        $campaignFilter = '';
+        if ($campaignId) {
+            $campaignFilter = 'AND s.campaign_id = :cid';
+            $params[':cid'] = $campaignId;
+        } elseif ($user['rol'] === 'supervisor') {
+            $campaignFilter = 'AND c.supervisor_id = :uid';
+            $params[':uid'] = $user['id'];
+        }
+
+        $stmt = $pdo->prepare("
+            SELECT a.id, a.nombres || ' ' || a.apellidos as nombre,
+                   COUNT(sa.id) as horas_asignadas
+            FROM advisors a
+            JOIN shift_assignments sa ON sa.advisor_id = a.id
+            JOIN schedules s ON s.id = sa.schedule_id
+            JOIN campaigns c ON c.id = s.campaign_id
+            WHERE EXTRACT(YEAR FROM sa.fecha) = :year
+              AND EXTRACT(MONTH FROM sa.fecha) = :month
+              AND sa.tipo != 'break'
+              AND a.estado = 'activo'
+              {$campaignFilter}
+            GROUP BY a.id, a.nombres, a.apellidos
+            ORDER BY horas_asignadas DESC
+            LIMIT 20
+        ");
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        // Obtener meta mensual
+        $stmtMeta = $pdo->prepare("SELECT horas_requeridas FROM monthly_hours_config WHERE anio = :y AND mes = :m LIMIT 1");
+        $stmtMeta->execute([':y' => $year, ':m' => $month]);
+        $meta = (int)($stmtMeta->fetchColumn() ?: 177);
+
+        echo json_encode(['success' => true, 'data' => $rows, 'meta' => $meta]);
+    }
+
     public function index(): void
     {
         // No requiere permiso especial — todo usuario autenticado accede al dashboard

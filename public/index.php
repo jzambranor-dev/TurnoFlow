@@ -85,6 +85,43 @@ if (str_starts_with($uri, '/api/')) {
             exit;
         }
 
+        // API - Notificaciones no leidas (requiere sesion)
+        if ($routeKey === 'GET /api/notifications/unread') {
+            if (!isset($_SESSION['user'])) {
+                http_response_code(401);
+                echo json_encode(['success' => false, 'error' => 'No autenticado']);
+                exit;
+            }
+            require_once APP_PATH . '/Controllers/NotificationController.php';
+            $controller = new App\Controllers\NotificationController();
+            $controller->getUnread();
+            exit;
+        }
+
+        // API - Dashboard endpoints (requiere sesion)
+        if (str_starts_with($uri, '/api/dashboard/')) {
+            if (!isset($_SESSION['user'])) {
+                http_response_code(401);
+                echo json_encode(['success' => false, 'error' => 'No autenticado']);
+                exit;
+            }
+            require_once APP_PATH . '/Controllers/DashboardController.php';
+            $controller = new App\Controllers\DashboardController();
+
+            if ($routeKey === 'GET /api/dashboard/coverage-trend') {
+                $controller->coverageTrend();
+                exit;
+            }
+            if ($routeKey === 'GET /api/dashboard/schedule-stats') {
+                $controller->scheduleStats();
+                exit;
+            }
+            if ($routeKey === 'GET /api/dashboard/advisor-hours') {
+                $controller->advisorHours();
+                exit;
+            }
+        }
+
         // API - Ruta no encontrada
         http_response_code(404);
         echo json_encode(['success' => false, 'error' => 'Endpoint no encontrado']);
@@ -154,6 +191,28 @@ if ($routeKey === 'GET /dashboard') {
     require_once APP_PATH . '/Controllers/DashboardController.php';
     $controller = new App\Controllers\DashboardController();
     $controller->index();
+    exit;
+}
+
+// Notificaciones
+if ($routeKey === 'GET /notifications') {
+    require_once APP_PATH . '/Controllers/NotificationController.php';
+    $controller = new App\Controllers\NotificationController();
+    $controller->index();
+    exit;
+}
+
+if ($routeKey === 'POST /notifications/read-all') {
+    require_once APP_PATH . '/Controllers/NotificationController.php';
+    $controller = new App\Controllers\NotificationController();
+    $controller->markAllRead();
+    exit;
+}
+
+if ($method === 'POST' && preg_match('#^/notifications/(\d+)/read$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/NotificationController.php';
+    $controller = new App\Controllers\NotificationController();
+    $controller->markRead((int)$matches[1]);
     exit;
 }
 
@@ -560,6 +619,14 @@ if ($method === 'POST' && preg_match('#^/users/(\d+)/toggle-status$#', $uri, $ma
     require_once APP_PATH . '/Controllers/UserController.php';
     $controller = new App\Controllers\UserController();
     $controller->toggleStatus((int)$matches[1]);
+    exit;
+}
+
+// Horarios - exportar PDF
+if ($method === 'GET' && preg_match('#^/schedules/(\d+)/export-pdf$#', $uri, $matches)) {
+    require_once APP_PATH . '/Controllers/ScheduleController.php';
+    $controller = new App\Controllers\ScheduleController();
+    $controller->exportPdf((int)$matches[1]);
     exit;
 }
 
