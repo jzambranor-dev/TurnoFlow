@@ -21,5 +21,13 @@ Thumbs.db
 # Logs
 *.log
 
+# Claude
+CLAUDE.md
+AGENTS.md
+.claude/
+
+# Tests cache
+.phpunit.cache/
+
 # Docker volumes
 postgres_data/
