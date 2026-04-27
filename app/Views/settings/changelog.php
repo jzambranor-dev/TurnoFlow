@@ -166,6 +166,51 @@ ob_start();
 
     <div class="cl-timeline">
 
+        <!-- v1.8.1 -->
+        <div class="cl-version">
+            <div class="cl-dot patch"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></div>
+            <div class="cl-version-header">
+                <span class="cl-version-tag">v1.8.1</span>
+                <span class="cl-version-date">27 Abril 2026</span>
+            </div>
+            <div class="cl-card">
+                <div class="cl-section">
+                    <h3><span class="cl-tag fix">Critical</span> Integridad de datos y seguridad</h3>
+                    <ul class="cl-list sec">
+                        <li>Fix <code>es_extra</code> en ScheduleBuilder: marcaba TODAS las horas como extra si asesor trabajaba &gt;8h — ahora solo marca las que exceden la 8va hora</li>
+                        <li>Guard contra division por cero en <code>build()</code> y <code>buildPartial()</code> cuando no hay asesores disponibles</li>
+                        <li>Resolucion asesor-usuario reescrita con matching determinista (regex email + cedula exacta) — eliminado LIKE peligroso</li>
+                        <li>Validacion de ownership de campana en <code>AdvisorController::store()</code> para supervisores</li>
+                        <li>Submit/Approve/Reject convertidos de GET a POST con CSRF en index y dashboard</li>
+                        <li>XSS eliminado en tracking.php y show.php: <code>innerHTML</code> reemplazado por DOM API segura</li>
+                    </ul>
+                </div>
+                <div class="cl-section">
+                    <h3><span class="cl-tag fix">High</span> Workflow y arquitectura</h3>
+                    <ul class="cl-list">
+                        <li>Horarios rechazados ahora pueden reenviarse para aprobacion</li>
+                        <li>Transacciones anidadas corregidas entre ImportService y ScheduleBuilder</li>
+                        <li>Horas de velada ahora usan configuracion de campana en vez de valores hardcodeados</li>
+                        <li>Admin no puede desactivar su propia cuenta</li>
+                        <li>Password temporal ya no se almacena en archivos de sesion</li>
+                        <li>Cache de permisos con TTL de 5 min — se recarga de BD al expirar</li>
+                        <li>Token CSRF se rota despues de cada uso exitoso</li>
+                        <li>Variables PHP inyectadas a JS con <code>json_encode()</code> en lugar de interpolacion directa</li>
+                        <li>Validacion pre-submit funciona en todas las vistas (monthly, advisor, daily, edit)</li>
+                    </ul>
+                </div>
+                <div class="cl-section">
+                    <h3><span class="cl-tag improve">Medium</span> Fixes menores</h3>
+                    <ul class="cl-list">
+                        <li>Valores de <code>.env</code> ahora stripean comillas simples y dobles</li>
+                        <li>Validacion de largo minimo de password (8 chars) en creacion de usuarios</li>
+                        <li>Fix deprecation warning PHP 8.2 en my-schedule.php por acceso a null</li>
+                        <li>Logout migrado de GET a POST con CSRF en sidebar y header</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
         <!-- v1.8.0 -->
         <div class="cl-version">
             <div class="cl-dot major"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></div>

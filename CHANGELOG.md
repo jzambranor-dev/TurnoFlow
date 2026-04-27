@@ -4,6 +4,46 @@ Todos los cambios notables del proyecto se documentan en este archivo.
 
 ---
 
+## [1.8.1] - 2026-04-27
+
+### Bug Audit — 22 fixes (Security, Data Integrity, Workflow)
+
+#### Critical Fixes
+- **es_extra corrupto** (`ScheduleBuilder.php`): `insertAssignments()` e `insertAssignmentsPartial()` marcaban TODAS las horas del día como extra si el asesor trabajaba >8h — ahora solo marca las horas que exceden la 8va. Contador incremental por asesor+fecha excluyendo breaks
+- **División por cero** (`ScheduleBuilder.php`): Guard `if ($numAsesores === 0) return 0;` en `build()` y `buildPartial()` para evitar crash cuando todos los asesores se filtran
+- **Resolución asesor equivocado** (`ScheduleController.php`): `resolveAdvisorByUser` usaba `LIKE` con cédula vs email, matcheando asesores incorrectos — reemplazado por matching determinista (regex de email + exact match por cédula/nombre)
+- **Supervisor inyecta asesores** (`AdvisorController.php`): `store()` no validaba que `campaign_id` perteneciera al supervisor — agregada validación de ownership antes del INSERT
+- **CSRF bypass en acciones críticas** (`schedules/index.php`, `dashboard/index.php`): Submit/Approve/Reject eran links GET sin CSRF — convertidos a formularios POST con `CsrfService::field()`
+- **XSS via innerHTML** (`tracking.php`, `show.php`): Nombres de asesores y campañas inyectados sin escapar via `innerHTML` — reescrito con DOM API (`createElement` + `textContent`). Eliminadas funciones duplicadas `showToast`/`showLoading` que overrideaban la versión segura global
+
+#### High Priority Fixes
+- **Horarios rechazados atascados** (`ScheduleController.php`): `submit()` solo permitía transición desde `borrador` — agregado `rechazado` a `WHERE status IN ('borrador', 'rechazado')`
+- **Transacciones anidadas** (`ScheduleBuilder.php`): `insertAssignments()` e `insertAssignmentsPartial()` ahora verifican `$pdo->inTransaction()` antes de abrir transacción propia — evita conflicto cuando `ImportService` llama a `ScheduleBuilder::build()`
+- **Velada hardcodeada** (`ScheduleBuilder.php`): `range(0, 6)` reemplazado por `range(0, $this->horaFinVelada - 1)` usando configuración real de la campaña. `horasTransicion` también usa `hora_inicio_nocturno`
+- **Admin se auto-desactiva** (`UserController.php`): `toggleStatus()` ahora rechaza si `$id === $_SESSION['user']['id']`
+- **Password en sesión** (`AdvisorController.php`): `$_SESSION['temp_password']` eliminado — contraseña temporal incluida directamente en flash message (se muestra una vez y se destruye)
+- **Cache de permisos stale** (`AuthService.php`): TTL de 5 minutos en cache de sesión — permisos se recargan de BD si expiran
+- **CSRF sin rotación** (`CsrfService.php`): Token se regenera después de validación exitosa para prevenir replay
+- **Inyección JS insegura** (`show.php`, `tracking.php`): `BASE_URL` y `CSRF_TOKEN` ahora se inyectan con `json_encode()` en lugar de interpolación directa en heredoc
+- **validateBeforeSubmit roto** (`show.php`): Usaba selector DOM que no existe en vista mensual/asesor — ahora usa `ALL_DATES` inyectado desde PHP con `json_encode($dates)`
+- **showToast duplicado** (`show.php`, `tracking.php`): Eliminadas funciones inline que usaban `innerHTML`, delegando a `toast-loading.js` global seguro
+
+#### Medium Priority Fixes
+- **.env con comillas** (`database.php`): `trim()` ahora también stripea comillas simples y dobles de valores
+- **Password sin largo mínimo** (`UserController.php`): `store()` ahora valida `strlen >= 8`, consistente con `resetPassword()`
+- **Null access** (`my-schedule.php`): Agregado check `$currentSchedule` para evitar deprecation warning PHP 8.2
+- **Logout via GET** (`sidebar.php`, `header.php`): Links de logout convertidos a formularios POST con CSRF
+
+#### Archivos modificados (14 por bug fixes)
+- `app/Services/ScheduleBuilder.php`, `AuthService.php`, `CsrfService.php`
+- `app/Controllers/ScheduleController.php`, `AdvisorController.php`, `UserController.php`
+- `app/Views/schedules/show.php`, `tracking.php`, `index.php`, `my-schedule.php`
+- `app/Views/dashboard/index.php`
+- `app/Views/layouts/partials/sidebar.php`, `header.php`
+- `config/database.php`
+
+---
+
 ## [1.8.0] - 2026-04-24
 
 ### Auditoría de Seguridad + Hardening + UX/Accessibility
