@@ -5,7 +5,7 @@
  */
 
 $pageTitle = 'Cumplimiento de Breaks';
-$currentPage = 'reports';
+$currentPage = 'breaks';
 
 $monthNames = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -14,7 +14,7 @@ $selectedCampaign = $selectedCampaign ?? 0;
 $selectedYear = $selectedYear ?? (int)date('Y');
 $selectedMonth = $selectedMonth ?? (int)date('n');
 $cruceData = $cruceData ?? [];
-$duracionBreak = $duracionBreak ?? 0;
+$duracionBreakMin = $duracionBreakMin ?? 0;
 $importInfo = $importInfo ?? null;
 
 ob_start();
@@ -121,7 +121,7 @@ ob_start();
     $totalActual = 0;
     $totalExceso = 0;
     foreach ($cruceData as $row) {
-        $totalPlanned += ($row['planned_slots'] ?? 0) * $duracionBreak;
+        $totalPlanned += ($row['planned_slots'] ?? 0) * $duracionBreakMin;
         $totalActual += ($row['actual_minutes'] ?? 0);
         $totalExceso += ($row['exceso_excel'] ?? 0);
     }
@@ -213,7 +213,7 @@ ob_start();
                     $sumHoras = 0;
                     $sumDias = 0;
                     foreach ($cruceData as $i => $row):
-                        $breakPlan = ($row['planned_slots'] ?? 0) * $duracionBreak;
+                        $breakPlan = ($row['planned_slots'] ?? 0) * $duracionBreakMin;
                         $breakReal = $row['actual_minutes'] ?? 0;
                         $exceso = $row['exceso_excel'] ?? 0;
                         $horasTrab = $row['horas_trabajadas'] ?? 0;

@@ -38,6 +38,7 @@ $uri = BASE_URL !== '' ? str_replace(BASE_URL, '', $uri) : $uri;
 $uri = $uri === '' ? '/' : (rtrim($uri, '/') ?: '/');
 $method = $_SERVER['REQUEST_METHOD'];
 
+
 // =============================================
 // API ROUTES (Bearer token auth, no session)
 // =============================================
