@@ -23,14 +23,6 @@ class ReportController
         28 => 168, 29 => 168, 30 => 170, 31 => 177,
     ];
 
-    /**
-     * Get monthly hour target — delegates to ScheduleReportService.
-     */
-    private function getMonthlyTarget(\PDO $pdo, int $year, int $month, int $daysInMonth): int
-    {
-        return \App\Services\ScheduleReportService::getMonthlyTarget($pdo, $year, $month, $daysInMonth);
-    }
-
     public function index(): void
     {
         AuthService::requirePermission('reports.view');
@@ -182,7 +174,7 @@ class ReportController
         $daysInMonth = (int)cal_days_in_month(CAL_GREGORIAN, $month, $year);
         $fechaInicio = sprintf('%04d-%02d-01', $year, $month);
         $fechaFin = sprintf('%04d-%02d-%02d', $year, $month, $daysInMonth);
-        $monthlyTarget = $this->getMonthlyTarget($pdo, $year, $month, $daysInMonth);
+        $monthlyTarget = \App\Services\ScheduleReportService::getMonthlyTarget($pdo, $year, $month, $daysInMonth);
 
         // Load schedule ID map
         $scheduleIdMap = $this->loadScheduleIdMap();
@@ -588,7 +580,7 @@ class ReportController
         $daysInMonth = (int)cal_days_in_month(CAL_GREGORIAN, $month, $year);
         $fechaInicio = sprintf('%04d-%02d-01', $year, $month);
         $fechaFin = sprintf('%04d-%02d-%02d', $year, $month, $daysInMonth);
-        $monthlyTarget = $this->getMonthlyTarget($pdo, $year, $month, $daysInMonth);
+        $monthlyTarget = \App\Services\ScheduleReportService::getMonthlyTarget($pdo, $year, $month, $daysInMonth);
 
         $scheduleIdMap = $this->loadScheduleIdMap();
         $nomenclatureMap = $this->getNomenclatureMap();

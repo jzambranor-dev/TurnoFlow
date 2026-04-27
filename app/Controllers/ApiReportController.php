@@ -8,13 +8,10 @@ use Database;
 use App\Services\ApiAuthService;
 
 require_once APP_PATH . '/Services/ApiAuthService.php';
+require_once APP_PATH . '/Services/ScheduleReportService.php';
 
 class ApiReportController
 {
-    private const DEFAULT_TARGETS = [
-        28 => 168, 29 => 168, 30 => 170, 31 => 177,
-    ];
-
     /**
      * GET /api/reports/campaigns — List available campaigns
      */
@@ -80,7 +77,7 @@ class ApiReportController
         $daysInMonth = (int)cal_days_in_month(CAL_GREGORIAN, $month, $year);
         $fechaInicio = sprintf('%04d-%02d-01', $year, $month);
         $fechaFin = sprintf('%04d-%02d-%02d', $year, $month, $daysInMonth);
-        $monthlyTarget = $this->getMonthlyTarget($pdo, $year, $month, $daysInMonth);
+        $monthlyTarget = \App\Services\ScheduleReportService::getMonthlyTarget($pdo, $year, $month, $daysInMonth);
 
         // Get advisors (own + shared)
         $stmt = $pdo->prepare("
@@ -141,7 +138,7 @@ class ApiReportController
         $daysInMonth = (int)cal_days_in_month(CAL_GREGORIAN, $month, $year);
         $fechaInicio = sprintf('%04d-%02d-01', $year, $month);
         $fechaFin = sprintf('%04d-%02d-%02d', $year, $month, $daysInMonth);
-        $monthlyTarget = $this->getMonthlyTarget($pdo, $year, $month, $daysInMonth);
+        $monthlyTarget = \App\Services\ScheduleReportService::getMonthlyTarget($pdo, $year, $month, $daysInMonth);
 
         // Get all active campaigns
         $stmt = $pdo->query("SELECT id, nombre FROM campaigns WHERE estado = 'activa' ORDER BY nombre");
@@ -293,17 +290,6 @@ class ApiReportController
         }
 
         return $token;
-    }
-
-    private function getMonthlyTarget(\PDO $pdo, int $year, int $month, int $daysInMonth): int
-    {
-        $stmt = $pdo->prepare("SELECT horas_requeridas FROM monthly_hours_config WHERE anio = :y AND mes = :m");
-        $stmt->execute([':y' => $year, ':m' => $month]);
-        $row = $stmt->fetch();
-        if ($row) {
-            return (int)$row['horas_requeridas'];
-        }
-        return self::DEFAULT_TARGETS[$daysInMonth] ?? 170;
     }
 
     private function buildReportData(\PDO $pdo, array $advisors, int $campaignId, string $fechaInicio, string $fechaFin, int $daysInMonth, int $monthlyTarget): array

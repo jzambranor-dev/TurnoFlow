@@ -1173,7 +1173,11 @@ function applyToCell(cell) {
             cell.dataset.activity = act.nombre;
             cell.style.background = act.color + '20';
             cell.style.borderBottom = '2px solid ' + act.color;
-            cell.innerHTML = '<span style="color:' + act.color + ';font-size:0.6em;font-weight:700;">' + act.nombre.substring(0, 3) + '</span>';
+            cell.textContent = '';
+            const actSpan = document.createElement('span');
+            actSpan.style.cssText = 'color:' + act.color + ';font-size:0.6em;font-weight:700;';
+            actSpan.textContent = act.nombre.substring(0, 3);
+            cell.appendChild(actSpan);
             addChange('add', advisorId, hour, 'normal', parseInt(actId));
             updateCoverage(hour, 1);
         } else {
@@ -1187,7 +1191,11 @@ function applyToCell(cell) {
             cell.dataset.activity = act.nombre;
             cell.style.background = act.color + '20';
             cell.style.borderBottom = '2px solid ' + act.color;
-            cell.innerHTML = '<span style="color:' + act.color + ';font-size:0.6em;font-weight:700;">' + act.nombre.substring(0, 3) + '</span>';
+            cell.textContent = '';
+            const actSpan = document.createElement('span');
+            actSpan.style.cssText = 'color:' + act.color + ';font-size:0.6em;font-weight:700;';
+            actSpan.textContent = act.nombre.substring(0, 3);
+            cell.appendChild(actSpan);
             addChange('add', advisorId, hour, 'normal', parseInt(actId));
         }
     } else {
@@ -1478,28 +1486,66 @@ async function loadAuditHistory() {
     try {
         const res = await fetch(BASE_URL + '/api/audit/schedule/{$scheduleIdForAudit}');
         const data = await res.json();
+        const container = document.getElementById('auditHistoryContent');
         if (!data.success || !data.items || data.items.length === 0) {
-            document.getElementById('auditHistoryContent').innerHTML = '<p style="color:#94a3b8;">No hay registros de auditoria para este horario.</p>';
+            container.textContent = '';
+            const p = document.createElement('p');
+            p.style.color = '#94a3b8';
+            p.textContent = 'No hay registros de auditoria para este horario.';
+            container.appendChild(p);
             auditLoaded = true;
             return;
         }
-        let html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
-        html += '<thead><tr style="background:#f8fafc;"><th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Fecha</th><th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Usuario</th><th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Accion</th><th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">IP</th></tr></thead><tbody>';
-        data.items.forEach(function(item) {
-            const fecha = new Date(item.fecha).toLocaleString('es-EC', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
-            const labels = {'schedule.submit':'Enviado','schedule.approve':'Aprobado','schedule.reject':'Rechazado','schedule.edit_assignments':'Edicion de turnos','attendance.update':'Asistencia'};
-            html += '<tr style="border-bottom:1px solid #f1f5f9;">';
-            html += '<td style="padding:8px 12px;color:#64748b;font-size:12px;">' + fecha + '</td>';
-            html += '<td style="padding:8px 12px;">' + (item.usuario || 'Sistema') + '</td>';
-            html += '<td style="padding:8px 12px;"><span style="padding:2px 8px;background:#eff6ff;color:#2563eb;border-radius:4px;font-size:12px;">' + (labels[item.accion] || item.accion) + '</span></td>';
-            html += '<td style="padding:8px 12px;font-family:monospace;font-size:11px;color:#94a3b8;">' + (item.ip || '-') + '</td>';
-            html += '</tr>';
+        const labels = {'schedule.submit':'Enviado','schedule.approve':'Aprobado','schedule.reject':'Rechazado','schedule.edit_assignments':'Edicion de turnos','attendance.update':'Asistencia'};
+        const table = document.createElement('table');
+        table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        headerRow.style.background = '#f8fafc';
+        ['Fecha','Usuario','Accion','IP'].forEach(function(txt) {
+            const th = document.createElement('th');
+            th.style.cssText = 'padding:8px 12px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;';
+            th.textContent = txt;
+            headerRow.appendChild(th);
         });
-        html += '</tbody></table>';
-        document.getElementById('auditHistoryContent').innerHTML = html;
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+        const tbody = document.createElement('tbody');
+        data.items.forEach(function(item) {
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid #f1f5f9';
+            const tdFecha = document.createElement('td');
+            tdFecha.style.cssText = 'padding:8px 12px;color:#64748b;font-size:12px;';
+            tdFecha.textContent = new Date(item.fecha).toLocaleString('es-EC', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+            const tdUser = document.createElement('td');
+            tdUser.style.cssText = 'padding:8px 12px;';
+            tdUser.textContent = item.usuario || 'Sistema';
+            const tdAccion = document.createElement('td');
+            tdAccion.style.cssText = 'padding:8px 12px;';
+            const badge = document.createElement('span');
+            badge.style.cssText = 'padding:2px 8px;background:#eff6ff;color:#2563eb;border-radius:4px;font-size:12px;';
+            badge.textContent = labels[item.accion] || item.accion;
+            tdAccion.appendChild(badge);
+            const tdIp = document.createElement('td');
+            tdIp.style.cssText = 'padding:8px 12px;font-family:monospace;font-size:11px;color:#94a3b8;';
+            tdIp.textContent = item.ip || '-';
+            tr.appendChild(tdFecha);
+            tr.appendChild(tdUser);
+            tr.appendChild(tdAccion);
+            tr.appendChild(tdIp);
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        container.textContent = '';
+        container.appendChild(table);
         auditLoaded = true;
     } catch(e) {
-        document.getElementById('auditHistoryContent').innerHTML = '<p style="color:#ef4444;">Error al cargar historial.</p>';
+        const container = document.getElementById('auditHistoryContent');
+        container.textContent = '';
+        const p = document.createElement('p');
+        p.style.color = '#ef4444';
+        p.textContent = 'Error al cargar historial.';
+        container.appendChild(p);
     }
 }
 </script>
