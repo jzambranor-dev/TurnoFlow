@@ -9,10 +9,12 @@ use PDO;
 use PDOException;
 use Throwable;
 use App\Services\AuthService;
+use App\Services\AdvisorImportService;
 use App\Traits\FlashMessageTrait;
 
 require_once APP_PATH . '/Services/AuthService.php';
 require_once APP_PATH . '/Services/AuditService.php';
+require_once APP_PATH . '/Services/AdvisorImportService.php';
 require_once APP_PATH . '/Traits/FlashMessageTrait.php';
 
 class AdvisorController
@@ -682,6 +684,160 @@ class AdvisorController
         }
 
         header('Location: ' . BASE_URL . '/advisors/bulk-config?campaign_id=' . $campaignId);
+        exit;
+    }
+
+    public function showImport(): void
+    {
+        AuthService::requirePermission('advisors.create');
+
+        $flashSuccess = $_SESSION['flash_success'] ?? null;
+        $flashError = $_SESSION['flash_error'] ?? null;
+        unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
+        $importResults = $_SESSION['import_results'] ?? null;
+        unset($_SESSION['import_results']);
+
+        $hasCredentials = !empty($_SESSION['import_credentials']);
+
+        $pageTitle = 'Importar Asesores';
+        $currentPage = 'advisors';
+
+        include APP_PATH . '/Views/advisors/import.php';
+    }
+
+    public function import(): void
+    {
+        AuthService::requirePermission('advisors.create');
+
+        $user = $_SESSION['user'] ?? null;
+        if (!$user) {
+            header('Location: ' . BASE_URL . '/login');
+            exit;
+        }
+
+        // Validate file upload
+        if (empty($_FILES['excel_file']) || !is_array($_FILES['excel_file'])) {
+            $this->setFlash('error', 'No se recibio ningun archivo.');
+            header('Location: ' . BASE_URL . '/advisors/import');
+            exit;
+        }
+
+        $file = $_FILES['excel_file'];
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            $this->setFlash('error', 'Error al subir el archivo. Verifica e intenta nuevamente.');
+            header('Location: ' . BASE_URL . '/advisors/import');
+            exit;
+        }
+
+        $originalName = (string)($file['name'] ?? '');
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        if (!in_array($extension, ['xlsx', 'xls'], true)) {
+            $this->setFlash('error', 'Formato no permitido. Usa .xlsx o .xls.');
+            header('Location: ' . BASE_URL . '/advisors/import');
+            exit;
+        }
+
+        // Move file to uploads directory
+        $uploadPath = rtrim($_ENV['UPLOAD_PATH'] ?? (BASE_PATH . '/uploads'), "/\\");
+        if (!is_dir($uploadPath) && !mkdir($uploadPath, 0777, true) && !is_dir($uploadPath)) {
+            $this->setFlash('error', 'No se pudo preparar la carpeta de carga.');
+            header('Location: ' . BASE_URL . '/advisors/import');
+            exit;
+        }
+
+        $storedName = sprintf('asesores_import_%s.%s', date('Ymd_His'), $extension);
+        $targetPath = $uploadPath . DIRECTORY_SEPARATOR . $storedName;
+
+        if (!move_uploaded_file((string)$file['tmp_name'], $targetPath)) {
+            $this->setFlash('error', 'No se pudo guardar el archivo cargado.');
+            header('Location: ' . BASE_URL . '/advisors/import');
+            exit;
+        }
+
+        try {
+            $result = AdvisorImportService::processExcel($targetPath, (int)$user['id']);
+
+            // Store credentials in session for later download
+            if (!empty($result['credentials'])) {
+                $_SESSION['import_credentials'] = $result['credentials'];
+            }
+
+            // Store results summary for display
+            $_SESSION['import_results'] = [
+                'created' => $result['created'],
+                'updated' => $result['updated'],
+                'errors' => $result['errors'],
+                'has_credentials' => !empty($result['credentials']),
+                'credentials_count' => count($result['credentials']),
+            ];
+
+            $msg = sprintf(
+                'Importacion completada: %d creados, %d actualizados.',
+                $result['created'],
+                $result['updated']
+            );
+            if (!empty($result['errors'])) {
+                $msg .= sprintf(' %d errores encontrados.', count($result['errors']));
+            }
+            if (!empty($result['credentials'])) {
+                $msg .= sprintf(
+                    ' Se generaron %d credenciales de usuario (descargalas antes de salir).',
+                    count($result['credentials'])
+                );
+            }
+            $this->setFlash('success', $msg);
+        } catch (Throwable $e) {
+            error_log('Importacion asesores fallida: ' . $e->getMessage());
+            $this->setFlash('error', 'No se pudo procesar el archivo: ' . $e->getMessage());
+        }
+
+        // Clean up uploaded file
+        if (file_exists($targetPath)) {
+            @unlink($targetPath);
+        }
+
+        header('Location: ' . BASE_URL . '/advisors/import');
+        exit;
+    }
+
+    public function downloadTemplate(): void
+    {
+        AuthService::requirePermission('advisors.create');
+
+        $spreadsheet = AdvisorImportService::generateTemplate();
+
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="plantilla_asesores.xlsx"');
+        header('Cache-Control: max-age=0');
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save('php://output');
+        exit;
+    }
+
+    public function exportCredentials(): void
+    {
+        AuthService::requirePermission('advisors.create');
+
+        $credentials = $_SESSION['import_credentials'] ?? [];
+        if (empty($credentials)) {
+            $this->setFlash('error', 'No hay credenciales disponibles para descargar.');
+            header('Location: ' . BASE_URL . '/advisors/import');
+            exit;
+        }
+
+        $spreadsheet = AdvisorImportService::generateCredentialsExcel($credentials);
+
+        // Clear from session after generating
+        unset($_SESSION['import_credentials']);
+
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="credenciales_asesores_' . date('Ymd_His') . '.xlsx"');
+        header('Cache-Control: max-age=0');
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save('php://output');
         exit;
     }
 

@@ -185,6 +185,10 @@ $exactRoutes = [
     // Advisors
     'GET /advisors'                     => ['AdvisorController', 'index'],
     'GET /advisors/create'              => ['AdvisorController', 'create'],
+    'GET /advisors/import'              => ['AdvisorController', 'showImport'],
+    'GET /advisors/import/template'     => ['AdvisorController', 'downloadTemplate'],
+    'GET /advisors/import/credentials'  => ['AdvisorController', 'exportCredentials'],
+    'POST /advisors/import'             => ['AdvisorController', 'import'],
     'GET /advisors/bulk-config'         => ['AdvisorController', 'bulkConfig'],
     'POST /advisors'                    => ['AdvisorController', 'store'],
     'POST /advisors/bulk-config'        => ['AdvisorController', 'bulkConfigStore'],
