@@ -45,8 +45,11 @@
 \echo '>>> 12/13 Migracion: indices de rendimiento...'
 \i migrations/008_performance_indexes.sql
 
-\echo '>>> 13/13 Migracion: permiso settings.edit...'
+\echo '>>> 13/14 Migracion: permiso settings.edit...'
 \i migrations/009_settings_edit_permission.sql
+
+\echo '>>> 14/14 Migracion: modulo cumplimiento breaks...'
+\i migrations/010_break_compliance.sql
 
 \echo ''
 \echo '============================================'

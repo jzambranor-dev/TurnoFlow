@@ -64,6 +64,7 @@ if (str_starts_with($uri, '/api/')) {
         'GET /api/dashboard/coverage-trend'     => ['DashboardController', 'coverageTrend'],
         'GET /api/dashboard/schedule-stats'     => ['DashboardController', 'scheduleStats'],
         'GET /api/dashboard/advisor-hours'      => ['DashboardController', 'advisorHours'],
+        'GET /api/breaks/report'               => ['BreakComplianceController', 'reportData'],
     ];
 
     try {
@@ -227,6 +228,12 @@ $exactRoutes = [
     'POST /settings/api-tokens'         => ['SettingController', 'createApiToken'],
     'POST /settings/api-tokens/revoke'  => ['SettingController', 'revokeApiToken'],
     'GET /changelog'                    => ['SettingController', 'changelog'],
+
+    // Break Compliance
+    'GET /breaks'                       => ['BreakComplianceController', 'index'],
+    'GET /breaks/import'                => ['BreakComplianceController', 'showImport'],
+    'POST /breaks/import'               => ['BreakComplianceController', 'import'],
+    'GET /breaks/export'                => ['BreakComplianceController', 'export'],
 
     // Audit
     'GET /audit-log'                    => ['AuditController', 'index'],

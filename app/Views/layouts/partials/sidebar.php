@@ -91,6 +91,17 @@ $currentPage = $currentPage ?? '';
                         </div>
                     </div>
 
+                    <!-- Cumplimiento Break -->
+                    <div class="menu-item">
+                        <a class="menu-link <?= $currentPage === 'breaks' ? 'active' : '' ?>"
+                           href="<?= BASE_URL ?>/breaks">
+                            <span class="menu-icon">
+                                <i class="ki-outline ki-coffee fs-2"></i>
+                            </span>
+                            <span class="menu-title">Cumplimiento Break</span>
+                        </a>
+                    </div>
+
                     <?php if ($isCoordinador): ?>
                     <!-- Separador - Solo Coordinador -->
                     <div class="menu-item pt-5">

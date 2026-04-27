@@ -149,6 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'migrations/007_audit_log.sql',
                     'migrations/008_performance_indexes.sql',
                     'migrations/009_settings_edit_permission.sql',
+                    'migrations/010_break_compliance.sql',
                 ];
                 $results = [];
                 foreach ($sqlFiles as $file) {
