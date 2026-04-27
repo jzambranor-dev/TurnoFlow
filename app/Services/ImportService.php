@@ -162,15 +162,15 @@ class ImportService
         }
 
         // Sync schedule header
-        $scheduleAction = self::syncMonthlyScheduleHeader(
+        $scheduleAction = ScheduleService::syncMonthlyScheduleHeader(
             $pdo, $campaignId, $periodoAnio, $periodoMes, $fechaInicio, $fechaFin, $userId
         );
 
         // Auto-generate assignments if possible
         $generatedAssignments = 0;
-        $scheduleRow = self::findMonthlySchedule($pdo, $campaignId, $fechaInicio);
+        $scheduleRow = ScheduleService::findMonthlySchedule($pdo, $campaignId, $fechaInicio);
         if ($scheduleRow) {
-            $existingAssignments = self::countScheduleAssignments($pdo, (int)$scheduleRow['id']);
+            $existingAssignments = ScheduleService::countScheduleAssignments($pdo, (int)$scheduleRow['id']);
             $isLockedStatus = in_array($scheduleRow['status'], ['aprobado', 'enviado'], true);
             $canRegenerate = !$isLockedStatus || ($isLockedStatus && $existingAssignments === 0);
 
@@ -299,78 +299,6 @@ class ImportService
         return max(0, (int)round((float)$normalized));
     }
 
-    private static function syncMonthlyScheduleHeader(
-        PDO $pdo,
-        int $campaignId,
-        int $periodoAnio,
-        int $periodoMes,
-        string $fechaInicio,
-        string $fechaFin,
-        int $userId
-    ): string {
-        $stmtExisting = $pdo->prepare("
-            SELECT id, status
-            FROM schedules
-            WHERE campaign_id = :campaign_id
-              AND fecha_inicio = :fecha_inicio
-              AND tipo = 'mensual'
-            LIMIT 1
-        ");
-        $stmtExisting->execute([
-            ':campaign_id' => $campaignId,
-            ':fecha_inicio' => $fechaInicio,
-        ]);
-        $existing = $stmtExisting->fetch();
-
-        if (!$existing) {
-            $stmtInsertSchedule = $pdo->prepare("
-                INSERT INTO schedules (
-                    campaign_id, periodo_anio, periodo_mes, fecha_inicio, fecha_fin,
-                    tipo, status, generado_por
-                ) VALUES (
-                    :campaign_id, :periodo_anio, :periodo_mes, :fecha_inicio, :fecha_fin,
-                    'mensual', 'borrador', :generado_por
-                )
-            ");
-            $stmtInsertSchedule->execute([
-                ':campaign_id' => $campaignId,
-                ':periodo_anio' => $periodoAnio,
-                ':periodo_mes' => $periodoMes,
-                ':fecha_inicio' => $fechaInicio,
-                ':fecha_fin' => $fechaFin,
-                ':generado_por' => $userId,
-            ]);
-            return 'creado';
-        }
-
-        return 'actualizado';
-    }
-
-    private static function findMonthlySchedule(PDO $pdo, int $campaignId, string $fechaInicio): ?array
-    {
-        $stmt = $pdo->prepare("
-            SELECT id, status
-            FROM schedules
-            WHERE campaign_id = :campaign_id
-              AND fecha_inicio = :fecha_inicio
-              AND tipo = 'mensual'
-            LIMIT 1
-        ");
-        $stmt->execute([
-            ':campaign_id' => $campaignId,
-            ':fecha_inicio' => $fechaInicio,
-        ]);
-        $row = $stmt->fetch();
-        return $row ?: null;
-    }
-
-    private static function countScheduleAssignments(PDO $pdo, int $scheduleId): int
-    {
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM shift_assignments WHERE schedule_id = :schedule_id");
-        $stmt->execute([':schedule_id' => $scheduleId]);
-        return (int)$stmt->fetchColumn();
-    }
-
     private static function regenerarCampañasFuente(
         PDO $pdo,
         int $targetCampaignId,
@@ -394,7 +322,7 @@ class ImportService
         foreach ($sourceCampaigns as $sc) {
             $sourceCampaignId = (int)$sc['source_campaign_id'];
 
-            $scheduleRow = self::findMonthlySchedule($pdo, $sourceCampaignId, $fechaInicio);
+            $scheduleRow = ScheduleService::findMonthlySchedule($pdo, $sourceCampaignId, $fechaInicio);
             if (!$scheduleRow) continue;
             if ($scheduleRow['status'] !== 'borrador') continue;
 

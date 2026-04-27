@@ -359,7 +359,7 @@ class ScheduleController
 
         $pdo->beginTransaction();
         try {
-            $action = $this->syncMonthlyScheduleHeader(
+            $action = ScheduleService::syncMonthlyScheduleHeader(
                 $pdo,
                 $campaignId,
                 $periodoAnio,
@@ -369,12 +369,12 @@ class ScheduleController
                 (int)$user['id']
             );
 
-            $scheduleRow = $this->findMonthlySchedule($pdo, $campaignId, $fechaInicio);
+            $scheduleRow = ScheduleService::findMonthlySchedule($pdo, $campaignId, $fechaInicio);
             if (!$scheduleRow) {
                 throw new RuntimeException('No se pudo crear la cabecera del horario.');
             }
 
-            $existingAssignments = $this->countScheduleAssignments($pdo, (int)$scheduleRow['id']);
+            $existingAssignments = ScheduleService::countScheduleAssignments($pdo, (int)$scheduleRow['id']);
             $isLockedStatus = in_array($scheduleRow['status'], ['aprobado', 'enviado'], true);
 
             if ($isLockedStatus && $existingAssignments > 0) {
@@ -499,7 +499,7 @@ class ScheduleController
         }
 
         // Buscar schedule existente
-        $scheduleRow = $this->findMonthlySchedule($pdo, $campaignId, $fechaInicio);
+        $scheduleRow = ScheduleService::findMonthlySchedule($pdo, $campaignId, $fechaInicio);
         if (!$scheduleRow) {
             $this->setFlash('error', 'No existe un horario para este periodo. Usa "Generar Horario" primero.');
             header('Location: ' . BASE_URL . '/schedules/generate');
@@ -823,103 +823,6 @@ class ScheduleController
         return $stmt->fetch() ?: null;
     }
 
-    private function syncMonthlyScheduleHeader(
-        PDO $pdo,
-        int $campaignId,
-        int $periodoAnio,
-        int $periodoMes,
-        string $fechaInicio,
-        string $fechaFin,
-        int $userId
-    ): string {
-        $stmtExisting = $pdo->prepare("
-            SELECT id, status
-            FROM schedules
-            WHERE campaign_id = :campaign_id
-              AND fecha_inicio = :fecha_inicio
-              AND tipo = 'mensual'
-            LIMIT 1
-        ");
-        $stmtExisting->execute([
-            ':campaign_id' => $campaignId,
-            ':fecha_inicio' => $fechaInicio,
-        ]);
-        $existing = $stmtExisting->fetch();
-
-        if (!$existing) {
-            $stmtInsertSchedule = $pdo->prepare("
-                INSERT INTO schedules (
-                    campaign_id, periodo_anio, periodo_mes, fecha_inicio, fecha_fin,
-                    tipo, status, generado_por
-                ) VALUES (
-                    :campaign_id, :periodo_anio, :periodo_mes, :fecha_inicio, :fecha_fin,
-                    'mensual', 'borrador', :generado_por
-                )
-            ");
-            $stmtInsertSchedule->execute([
-                ':campaign_id' => $campaignId,
-                ':periodo_anio' => $periodoAnio,
-                ':periodo_mes' => $periodoMes,
-                ':fecha_inicio' => $fechaInicio,
-                ':fecha_fin' => $fechaFin,
-                ':generado_por' => $userId,
-            ]);
-
-            return 'creado';
-        }
-
-        if (in_array($existing['status'], ['aprobado', 'enviado'], true)) {
-            return 'mantenido';
-        }
-
-        $stmtUpdateSchedule = $pdo->prepare("
-            UPDATE schedules SET
-                periodo_anio = :periodo_anio,
-                periodo_mes = :periodo_mes,
-                fecha_fin = :fecha_fin,
-                tipo = 'mensual',
-                status = 'borrador',
-                generado_por = :generado_por,
-                nota_rechazo = NULL
-            WHERE id = :id
-        ");
-        $stmtUpdateSchedule->execute([
-            ':periodo_anio' => $periodoAnio,
-            ':periodo_mes' => $periodoMes,
-            ':fecha_fin' => $fechaFin,
-            ':generado_por' => $userId,
-            ':id' => $existing['id'],
-        ]);
-
-        return 'actualizado';
-    }
-
-    private function findMonthlySchedule(PDO $pdo, int $campaignId, string $fechaInicio): ?array
-    {
-        $stmt = $pdo->prepare("
-            SELECT id, status
-            FROM schedules
-            WHERE campaign_id = :campaign_id
-              AND fecha_inicio = :fecha_inicio
-              AND tipo = 'mensual'
-            LIMIT 1
-        ");
-        $stmt->execute([
-            ':campaign_id' => $campaignId,
-            ':fecha_inicio' => $fechaInicio,
-        ]);
-
-        $row = $stmt->fetch();
-        return $row ?: null;
-    }
-
-    private function countScheduleAssignments(PDO $pdo, int $scheduleId): int
-    {
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM shift_assignments WHERE schedule_id = :schedule_id");
-        $stmt->execute([':schedule_id' => $scheduleId]);
-        return (int)$stmt->fetchColumn();
-    }
-
     /**
      * Regenera horarios de campañas fuente que tienen asesores prestados a $targetCampaignId.
      * Esto asegura que el horario de la campaña fuente refleje las horas comprometidas
@@ -954,7 +857,7 @@ class ScheduleController
             $sourceCampaignId = (int)$sc['source_campaign_id'];
 
             // Buscar horario existente en borrador para este período
-            $scheduleRow = $this->findMonthlySchedule($pdo, $sourceCampaignId, $fechaInicio);
+            $scheduleRow = ScheduleService::findMonthlySchedule($pdo, $sourceCampaignId, $fechaInicio);
             if (!$scheduleRow) continue;
 
             // Solo regenerar si está en borrador (no tocar aprobados/enviados)

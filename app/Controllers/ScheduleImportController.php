@@ -8,10 +8,12 @@ use Database;
 use PDO;
 use Throwable;
 use App\Services\AuthService;
+use App\Services\ScheduleService;
 use App\Traits\FlashMessageTrait;
 
 require_once APP_PATH . '/Services/AuthService.php';
 require_once APP_PATH . '/Services/ImportService.php';
+require_once APP_PATH . '/Services/ScheduleService.php';
 require_once APP_PATH . '/Traits/FlashMessageTrait.php';
 
 class ScheduleImportController
@@ -222,7 +224,7 @@ class ScheduleImportController
         $campaignId = (int)$importRow['campaign_id'];
         $fechaInicio = sprintf('%04d-%02d-01', $periodoAnio, $periodoMes);
 
-        $scheduleRow = $this->findMonthlySchedule($pdo, $campaignId, $fechaInicio);
+        $scheduleRow = ScheduleService::findMonthlySchedule($pdo, $campaignId, $fechaInicio);
         if ($scheduleRow && in_array($scheduleRow['status'], ['aprobado', 'enviado'], true)) {
             $this->setFlash('error', 'No se puede eliminar: el horario esta en estado "' . $scheduleRow['status'] . '".');
             header('Location: ' . BASE_URL . '/schedules/generate');
@@ -275,25 +277,6 @@ class ScheduleImportController
 
         header('Location: ' . BASE_URL . '/schedules/generate');
         exit;
-    }
-
-    private function findMonthlySchedule(PDO $pdo, int $campaignId, string $fechaInicio): ?array
-    {
-        $stmt = $pdo->prepare("
-            SELECT id, status
-            FROM schedules
-            WHERE campaign_id = :campaign_id
-              AND fecha_inicio = :fecha_inicio
-              AND tipo = 'mensual'
-            LIMIT 1
-        ");
-        $stmt->execute([
-            ':campaign_id' => $campaignId,
-            ':fecha_inicio' => $fechaInicio,
-        ]);
-
-        $row = $stmt->fetch();
-        return $row ?: null;
     }
 
 }
