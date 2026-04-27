@@ -3,6 +3,12 @@
  * TurnoFlow - Vista de Configuracion
  */
 
+$pageTitle = 'Configuración';
+$currentPage = 'settings';
+$flashSuccess = $_SESSION['flash_success'] ?? null;
+$flashError = $_SESSION['flash_error'] ?? null;
+unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
 $monthNamesConfig = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                       'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -17,12 +23,12 @@ ob_start();
         </div>
     </div>
 
-    <?php if (!empty($_SESSION['flash_success'])): ?>
-    <div class="flash-msg flash-success"><?= htmlspecialchars($_SESSION['flash_success']) ?></div>
-    <?php unset($_SESSION['flash_success']); endif; ?>
-    <?php if (!empty($_SESSION['flash_error'])): ?>
-    <div class="flash-msg flash-error"><?= htmlspecialchars($_SESSION['flash_error']) ?></div>
-    <?php unset($_SESSION['flash_error']); endif; ?>
+    <?php if (!empty($flashSuccess)): ?>
+    <div class="alert alert-success"><?= htmlspecialchars($flashSuccess) ?></div>
+    <?php endif; ?>
+    <?php if (!empty($flashError)): ?>
+    <div class="alert alert-danger"><?= htmlspecialchars($flashError) ?></div>
+    <?php endif; ?>
 
     <div class="settings-grid">
 

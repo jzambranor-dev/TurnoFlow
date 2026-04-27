@@ -3,6 +3,12 @@
  * TurnoFlow - Editar Rol y Permisos
  */
 
+$pageTitle = 'Editar Rol';
+$currentPage = 'roles';
+$flashSuccess = $_SESSION['flash_success'] ?? null;
+$flashError = $_SESSION['flash_error'] ?? null;
+unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
 $isBase = in_array($role['nombre'], ['admin', 'gerente', 'coordinador', 'supervisor', 'asesor']);
 
 $moduloNames = [
@@ -20,12 +26,15 @@ ob_start();
 ?>
 
 <div class="edit-role-page">
-    <?php if (isset($_SESSION['error'])): ?>
-    <div class="alert alert-error">
+    <?php if (!empty($flashSuccess)): ?>
+    <div class="alert alert-success"><?= htmlspecialchars($flashSuccess) ?></div>
+    <?php endif; ?>
+    <?php if (!empty($flashError)): ?>
+    <div class="alert alert-danger">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-        <?= htmlspecialchars($_SESSION['error']) ?>
+        <?= htmlspecialchars($flashError) ?>
     </div>
-    <?php unset($_SESSION['error']); endif; ?>
+    <?php endif; ?>
 
     <div class="page-header">
         <div class="header-content">

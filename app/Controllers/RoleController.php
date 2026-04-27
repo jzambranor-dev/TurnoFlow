@@ -6,11 +6,14 @@ namespace App\Controllers;
 
 use Database;
 use App\Services\AuthService;
+use App\Traits\FlashMessageTrait;
 
 require_once APP_PATH . '/Services/AuthService.php';
+require_once APP_PATH . '/Traits/FlashMessageTrait.php';
 
 class RoleController
 {
+    use FlashMessageTrait;
     public function index(): void
     {
         AuthService::requirePermission('roles.view');
@@ -58,7 +61,7 @@ class RoleController
         $permissions = $_POST['permissions'] ?? [];
 
         if (empty($nombre)) {
-            $_SESSION['error'] = 'El nombre del rol es requerido';
+            $this->setFlash('error', 'El nombre del rol es requerido');
             header('Location: ' . BASE_URL . '/roles/create');
             exit;
         }
@@ -92,10 +95,10 @@ class RoleController
             }
 
             $pdo->commit();
-            $_SESSION['success'] = 'Rol creado correctamente';
+            $this->setFlash('success', 'Rol creado correctamente');
         } catch (\Exception $e) {
             $pdo->rollBack();
-            $_SESSION['error'] = $e->getMessage();
+            $this->setFlash('error', $e->getMessage());
             header('Location: ' . BASE_URL . '/roles/create');
             exit;
         }
@@ -162,9 +165,9 @@ class RoleController
             // Actualizar permisos (tiene su propia transaccion)
             AuthService::updateRolePermissions($id, $permissions);
 
-            $_SESSION['success'] = 'Rol actualizado correctamente';
+            $this->setFlash('success', 'Rol actualizado correctamente');
         } catch (\Exception $e) {
-            $_SESSION['error'] = 'Error al actualizar el rol: ' . $e->getMessage();
+            $this->setFlash('error', 'Error al actualizar el rol: ' . $e->getMessage());
         }
 
         header('Location: ' . BASE_URL . '/roles');
@@ -190,7 +193,7 @@ class RoleController
         // No permitir eliminar roles base
         $rolesBase = ['admin', 'gerente', 'coordinador', 'supervisor', 'asesor'];
         if (in_array($role['nombre'], $rolesBase)) {
-            $_SESSION['error'] = 'No se pueden eliminar los roles base del sistema';
+            $this->setFlash('error', 'No se pueden eliminar los roles base del sistema');
             header('Location: ' . BASE_URL . '/roles');
             exit;
         }
@@ -199,7 +202,7 @@ class RoleController
         $stmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE rol_id = :id");
         $stmt->execute([':id' => $id]);
         if ($stmt->fetchColumn() > 0) {
-            $_SESSION['error'] = 'No se puede eliminar el rol porque tiene usuarios asignados';
+            $this->setFlash('error', 'No se puede eliminar el rol porque tiene usuarios asignados');
             header('Location: ' . BASE_URL . '/roles');
             exit;
         }
@@ -207,9 +210,9 @@ class RoleController
         try {
             $stmt = $pdo->prepare("DELETE FROM roles WHERE id = :id");
             $stmt->execute([':id' => $id]);
-            $_SESSION['success'] = 'Rol eliminado correctamente';
+            $this->setFlash('success', 'Rol eliminado correctamente');
         } catch (\Exception $e) {
-            $_SESSION['error'] = 'Error al eliminar el rol';
+            $this->setFlash('error', 'Error al eliminar el rol');
         }
 
         header('Location: ' . BASE_URL . '/roles');

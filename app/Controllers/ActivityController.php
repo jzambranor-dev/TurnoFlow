@@ -6,11 +6,14 @@ namespace App\Controllers;
 
 use Database;
 use App\Services\AuthService;
+use App\Traits\FlashMessageTrait;
 
 require_once APP_PATH . '/Services/AuthService.php';
+require_once APP_PATH . '/Traits/FlashMessageTrait.php';
 
 class ActivityController
 {
+    use FlashMessageTrait;
     /**
      * Lista actividades de una campaña
      */
@@ -79,7 +82,7 @@ class ActivityController
         $color = trim($_POST['color'] ?? '#2563eb');
 
         if (empty($nombre)) {
-            $_SESSION['flash_error'] = 'El nombre de la actividad es obligatorio.';
+            $this->setFlash('error', 'El nombre de la actividad es obligatorio.');
             header('Location: ' . BASE_URL . '/campaigns/' . $campaignId . '/activities/create');
             exit;
         }
@@ -98,12 +101,12 @@ class ActivityController
                 ':color' => $color,
             ]);
 
-            $_SESSION['flash_success'] = 'Actividad creada exitosamente.';
+            $this->setFlash('success', 'Actividad creada exitosamente.');
         } catch (\PDOException $e) {
             if (strpos($e->getMessage(), 'unique') !== false || strpos($e->getMessage(), 'duplicate') !== false) {
-                $_SESSION['flash_error'] = 'Ya existe una actividad con ese nombre en esta campaña.';
+                $this->setFlash('error', 'Ya existe una actividad con ese nombre en esta campaña.');
             } else {
-                $_SESSION['flash_error'] = 'Error al crear la actividad.';
+                $this->setFlash('error', 'Error al crear la actividad.');
             }
         }
 
@@ -172,9 +175,9 @@ class ActivityController
                 ':id' => $activityId,
             ]);
 
-            $_SESSION['flash_success'] = 'Actividad actualizada.';
+            $this->setFlash('success', 'Actividad actualizada.');
         } catch (\PDOException $e) {
-            $_SESSION['flash_error'] = 'Error al actualizar la actividad.';
+            $this->setFlash('error', 'Error al actualizar la actividad.');
         }
 
         header('Location: ' . BASE_URL . '/campaigns/' . $activity['campaign_id'] . '/activities');
@@ -271,13 +274,13 @@ class ActivityController
         $diasSemana = $_POST['dias_semana'] ?? [0,1,2,3,4];
 
         if ($advisorId <= 0) {
-            $_SESSION['flash_error'] = 'Seleccióna un asesor.';
+            $this->setFlash('error', 'Seleccióna un asesor.');
             header('Location: ' . BASE_URL . '/activities/' . $activityId . '/assignments');
             exit;
         }
 
         if ($horaInicio >= $horaFin) {
-            $_SESSION['flash_error'] = 'La hora de inicio debe ser menor que la hora de fin.';
+            $this->setFlash('error', 'La hora de inicio debe ser menor que la hora de fin.');
             header('Location: ' . BASE_URL . '/activities/' . $activityId . '/assignments');
             exit;
         }
@@ -300,7 +303,7 @@ class ActivityController
             ':campaign_id2' => $activity['campaign_id'],
         ]);
         if (!$stmt->fetch()) {
-            $_SESSION['flash_error'] = 'El asesor no pertenece a esta campaña.';
+            $this->setFlash('error', 'El asesor no pertenece a esta campaña.');
             header('Location: ' . BASE_URL . '/activities/' . $activityId . '/assignments');
             exit;
         }
@@ -327,9 +330,9 @@ class ActivityController
                 ':dias_semana2' => $diasPg,
             ]);
 
-            $_SESSION['flash_success'] = 'Asesor asignado a la actividad.';
+            $this->setFlash('success', 'Asesor asignado a la actividad.');
         } catch (\PDOException $e) {
-            $_SESSION['flash_error'] = 'Error al asignar el asesor: ' . $e->getMessage();
+            $this->setFlash('error', 'Error al asignar el asesor: ' . $e->getMessage());
         }
 
         header('Location: ' . BASE_URL . '/activities/' . $activityId . '/assignments');
@@ -358,7 +361,7 @@ class ActivityController
         $stmt = $pdo->prepare("DELETE FROM advisor_activity_assignments WHERE id = :id");
         $stmt->execute([':id' => $assignmentId]);
 
-        $_SESSION['flash_success'] = 'Asignación eliminada.';
+        $this->setFlash('success', 'Asignación eliminada.');
         header('Location: ' . BASE_URL . '/activities/' . $assignment['activity_id'] . '/assignments');
         exit;
     }

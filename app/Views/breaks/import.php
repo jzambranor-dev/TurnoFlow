@@ -5,7 +5,7 @@
  */
 
 $pageTitle = 'Importar Datos de Break';
-$currentPage = 'reports';
+$currentPage = 'breaks';
 
 $campaigns = $campaigns ?? [];
 

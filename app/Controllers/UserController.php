@@ -6,11 +6,14 @@ namespace App\Controllers;
 
 use Database;
 use App\Services\AuthService;
+use App\Traits\FlashMessageTrait;
 
 require_once APP_PATH . '/Services/AuthService.php';
+require_once APP_PATH . '/Traits/FlashMessageTrait.php';
 
 class UserController
 {
+    use FlashMessageTrait;
     public function index(): void
     {
         AuthService::requirePermission('users.view');
@@ -62,13 +65,13 @@ class UserController
         $activo = isset($_POST['activo']);
 
         if (empty($nombre) || empty($apellido) || empty($email) || empty($password) || $rol_id === 0) {
-            $_SESSION['error'] = 'Todos los campos son requeridos';
+            $this->setFlash('error', 'Todos los campos son requeridos');
             header('Location: ' . BASE_URL . '/users/create');
             exit;
         }
 
         if (strlen($password) < 8) {
-            $_SESSION['error'] = 'La contrasena debe tener al menos 8 caracteres.';
+            $this->setFlash('error', 'La contrasena debe tener al menos 8 caracteres.');
             header('Location: ' . BASE_URL . '/users/create');
             exit;
         }
@@ -79,7 +82,7 @@ class UserController
         $stmt = $pdo->prepare("SELECT id FROM users WHERE email = :email");
         $stmt->execute([':email' => $email]);
         if ($stmt->fetch()) {
-            $_SESSION['error'] = 'El email ya esta registrado';
+            $this->setFlash('error', 'El email ya esta registrado');
             header('Location: ' . BASE_URL . '/users/create');
             exit;
         }
@@ -100,7 +103,7 @@ class UserController
             ':activo' => $activo ? 'true' : 'false',
         ]);
 
-        $_SESSION['success'] = 'Usuario creado correctamente';
+        $this->setFlash('success', 'Usuario creado correctamente');
         header('Location: ' . BASE_URL . '/users');
         exit;
     }
@@ -140,7 +143,7 @@ class UserController
         $activo = isset($_POST['activo']);
 
         if (empty($nombre) || empty($apellido) || empty($email) || $rol_id === 0) {
-            $_SESSION['error'] = 'Todos los campos son requeridos';
+            $this->setFlash('error', 'Todos los campos son requeridos');
             header('Location: ' . BASE_URL . '/users/' . $id . '/edit');
             exit;
         }
@@ -151,7 +154,7 @@ class UserController
         $stmt = $pdo->prepare("SELECT id FROM users WHERE email = :email AND id != :id");
         $stmt->execute([':email' => $email, ':id' => $id]);
         if ($stmt->fetch()) {
-            $_SESSION['error'] = 'El email ya esta registrado';
+            $this->setFlash('error', 'El email ya esta registrado');
             header('Location: ' . BASE_URL . '/users/' . $id . '/edit');
             exit;
         }
@@ -175,7 +178,7 @@ class UserController
             ':id' => $id,
         ]);
 
-        $_SESSION['success'] = 'Usuario actualizado correctamente';
+        $this->setFlash('success', 'Usuario actualizado correctamente');
         header('Location: ' . BASE_URL . '/users');
         exit;
     }
@@ -188,13 +191,13 @@ class UserController
         $password_confirm = $_POST['password_confirm'] ?? '';
 
         if (empty($password) || strlen($password) < 8) {
-            $_SESSION['error'] = 'La contrasena debe tener al menos 8 caracteres';
+            $this->setFlash('error', 'La contrasena debe tener al menos 8 caracteres');
             header('Location: ' . BASE_URL . '/users/' . $id . '/edit');
             exit;
         }
 
         if ($password !== $password_confirm) {
-            $_SESSION['error'] = 'Las contrasenas no coinciden';
+            $this->setFlash('error', 'Las contrasenas no coinciden');
             header('Location: ' . BASE_URL . '/users/' . $id . '/edit');
             exit;
         }
@@ -209,7 +212,7 @@ class UserController
             ':id' => $id,
         ]);
 
-        $_SESSION['success'] = 'Contrasena actualizada correctamente';
+        $this->setFlash('success', 'Contrasena actualizada correctamente');
         header('Location: ' . BASE_URL . '/users');
         exit;
     }
@@ -219,7 +222,7 @@ class UserController
         AuthService::requirePermission('users.edit');
 
         if ($id === (int)$_SESSION['user']['id']) {
-            $_SESSION['error'] = 'No puedes desactivar tu propia cuenta.';
+            $this->setFlash('error', 'No puedes desactivar tu propia cuenta.');
             header('Location: ' . BASE_URL . '/users');
             exit;
         }
@@ -229,7 +232,7 @@ class UserController
         $stmt = $pdo->prepare("UPDATE users SET activo = NOT activo WHERE id = :id");
         $stmt->execute([':id' => $id]);
 
-        $_SESSION['success'] = 'Estado actualizado correctamente';
+        $this->setFlash('success', 'Estado actualizado correctamente');
         header('Location: ' . BASE_URL . '/users');
         exit;
     }

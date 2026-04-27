@@ -3,6 +3,12 @@
  * TurnoFlow - Editar Actividad
  */
 
+$pageTitle = 'Editar Actividad';
+$currentPage = 'campaigns';
+$flashSuccess = $_SESSION['flash_success'] ?? null;
+$flashError = $_SESSION['flash_error'] ?? null;
+unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
 ob_start();
 ?>
 
@@ -22,9 +28,12 @@ ob_start();
     </div>
 
     <!-- Flash Messages -->
-    <?php if (isset($_SESSION['flash_error'])): ?>
-    <div class="alert alert-danger"><?= htmlspecialchars($_SESSION['flash_error']) ?></div>
-    <?php unset($_SESSION['flash_error']); endif; ?>
+    <?php if (!empty($flashSuccess)): ?>
+    <div class="alert alert-success"><?= htmlspecialchars($flashSuccess) ?></div>
+    <?php endif; ?>
+    <?php if (!empty($flashError)): ?>
+    <div class="alert alert-danger"><?= htmlspecialchars($flashError) ?></div>
+    <?php endif; ?>
 
     <div class="data-panel">
         <div class="panel-header">

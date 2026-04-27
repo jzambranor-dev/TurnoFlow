@@ -102,6 +102,30 @@ $currentPage = $currentPage ?? '';
                         </a>
                     </div>
 
+                    <!-- Mi Horario (visible para asesores) -->
+                    <?php if (($user['rol'] ?? '') === 'asesor'): ?>
+                    <div class="menu-item">
+                        <a class="menu-link <?= $currentPage === 'my-schedule' ? 'active' : '' ?>"
+                           href="<?= BASE_URL ?>/my-schedule">
+                            <span class="menu-icon">
+                                <i class="ki-outline ki-calendar-tick fs-2"></i>
+                            </span>
+                            <span class="menu-title">Mi Horario</span>
+                        </a>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Reportes -->
+                    <div class="menu-item">
+                        <a class="menu-link <?= $currentPage === 'reports' ? 'active' : '' ?>"
+                           href="<?= BASE_URL ?>/reports">
+                            <span class="menu-icon">
+                                <i class="ki-outline ki-chart-simple fs-2"></i>
+                            </span>
+                            <span class="menu-title">Reportes</span>
+                        </a>
+                    </div>
+
                     <?php if ($isCoordinador): ?>
                     <!-- Separador - Solo Coordinador -->
                     <div class="menu-item pt-5">
@@ -132,6 +156,28 @@ $currentPage = $currentPage ?? '';
                         </a>
                     </div>
 
+                    <!-- Usuarios -->
+                    <div class="menu-item">
+                        <a class="menu-link <?= $currentPage === 'users' ? 'active' : '' ?>"
+                           href="<?= BASE_URL ?>/users">
+                            <span class="menu-icon">
+                                <i class="ki-outline ki-profile-user fs-2"></i>
+                            </span>
+                            <span class="menu-title">Usuarios</span>
+                        </a>
+                    </div>
+
+                    <!-- Roles -->
+                    <div class="menu-item">
+                        <a class="menu-link <?= $currentPage === 'roles' ? 'active' : '' ?>"
+                           href="<?= BASE_URL ?>/roles">
+                            <span class="menu-icon">
+                                <i class="ki-outline ki-shield fs-2"></i>
+                            </span>
+                            <span class="menu-title">Roles</span>
+                        </a>
+                    </div>
+
                     <?php if (in_array($user['rol'] ?? '', ['admin', 'gerente'], true)): ?>
                     <!-- Auditoria -->
                     <div class="menu-item">
@@ -150,6 +196,17 @@ $currentPage = $currentPage ?? '';
                         <div class="menu-content">
                             <span class="menu-heading fw-bold text-uppercase fs-7">Configuración</span>
                         </div>
+                    </div>
+
+                    <!-- Configuración General -->
+                    <div class="menu-item">
+                        <a class="menu-link <?= $currentPage === 'settings' ? 'active' : '' ?>"
+                           href="<?= BASE_URL ?>/settings">
+                            <span class="menu-icon">
+                                <i class="ki-outline ki-setting-2 fs-2"></i>
+                            </span>
+                            <span class="menu-title">Configuración</span>
+                        </a>
                     </div>
 
                     <div class="menu-item">

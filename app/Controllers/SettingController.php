@@ -7,12 +7,15 @@ namespace App\Controllers;
 use Database;
 use App\Services\AuthService;
 use App\Services\ApiAuthService;
+use App\Traits\FlashMessageTrait;
 
 require_once APP_PATH . '/Services/AuthService.php';
 require_once APP_PATH . '/Services/ApiAuthService.php';
+require_once APP_PATH . '/Traits/FlashMessageTrait.php';
 
 class SettingController
 {
+    use FlashMessageTrait;
     public function index(): void
     {
         AuthService::requirePermission('settings.view');
@@ -52,7 +55,7 @@ class SettingController
         $userId = (int)$_SESSION['user']['id'];
 
         if ($anio < 2024 || $anio > 2035 || $mes < 1 || $mes > 12 || $horas < 100 || $horas > 250 || $dias < 28 || $dias > 31) {
-            $_SESSION['flash_error'] = 'Datos invalidos';
+            $this->setFlash('error', 'Datos invalidos');
             header('Location: ' . BASE_URL . '/settings');
             exit;
         }
@@ -70,7 +73,7 @@ class SettingController
             ':horas2' => $horas, ':dias2' => $dias, ':uid2' => $userId,
         ]);
 
-        $_SESSION['flash_success'] = "Horas de $mes/$anio actualizadas correctamente";
+        $this->setFlash('success', "Horas de $mes/$anio actualizadas correctamente");
         header('Location: ' . BASE_URL . '/settings');
         exit;
     }
@@ -86,7 +89,7 @@ class SettingController
             $stmt->execute([':id' => $id]);
         }
 
-        $_SESSION['flash_success'] = 'Registro eliminado';
+        $this->setFlash('success', 'Registro eliminado');
         header('Location: ' . BASE_URL . '/settings');
         exit;
     }
@@ -100,7 +103,7 @@ class SettingController
         $nombre = trim($_POST['nombre'] ?? '');
 
         if ($fecha === '' || $nombre === '') {
-            $_SESSION['flash_error'] = 'Fecha y nombre son requeridos';
+            $this->setFlash('error', 'Fecha y nombre son requeridos');
             header('Location: ' . BASE_URL . '/settings');
             exit;
         }
@@ -111,7 +114,7 @@ class SettingController
         ");
         $stmt->execute([':fecha' => $fecha, ':nombre' => $nombre, ':nombre2' => $nombre]);
 
-        $_SESSION['flash_success'] = "Dia festivo '$nombre' guardado";
+        $this->setFlash('success', "Dia festivo '$nombre' guardado");
         header('Location: ' . BASE_URL . '/settings');
         exit;
     }
@@ -127,7 +130,7 @@ class SettingController
             $stmt->execute([':id' => $id]);
         }
 
-        $_SESSION['flash_success'] = 'Dia festivo eliminado';
+        $this->setFlash('success', 'Dia festivo eliminado');
         header('Location: ' . BASE_URL . '/settings');
         exit;
     }
@@ -146,7 +149,7 @@ class SettingController
             }
         }
 
-        $_SESSION['flash_success'] = 'Parametros actualizados';
+        $this->setFlash('success', 'Parametros actualizados');
         header('Location: ' . BASE_URL . '/settings');
         exit;
     }
@@ -160,7 +163,7 @@ class SettingController
         $expiraDias = (int)($_POST['token_expira_dias'] ?? 0);
 
         if ($nombre === '') {
-            $_SESSION['flash_error'] = 'El nombre del token es requerido';
+            $this->setFlash('error', 'El nombre del token es requerido');
             header('Location: ' . BASE_URL . '/settings');
             exit;
         }
@@ -180,7 +183,7 @@ class SettingController
         $plainToken = ApiAuthService::createToken($userId, $nombre, array_values($permisos), $expiraEn);
 
         $_SESSION['flash_new_token'] = $plainToken;
-        $_SESSION['flash_success'] = "Token '$nombre' creado exitosamente. Copialo ahora, no se mostrara de nuevo.";
+        $this->setFlash('success', "Token '$nombre' creado exitosamente. Copialo ahora, no se mostrara de nuevo.");
         header('Location: ' . BASE_URL . '/settings');
         exit;
     }
@@ -194,7 +197,7 @@ class SettingController
             ApiAuthService::revokeToken($id);
         }
 
-        $_SESSION['flash_success'] = 'Token revocado';
+        $this->setFlash('success', 'Token revocado');
         header('Location: ' . BASE_URL . '/settings');
         exit;
     }

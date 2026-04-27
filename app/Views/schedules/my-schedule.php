@@ -4,6 +4,9 @@
  * Vista personal del asesor con su horario mensual aprobado
  */
 
+$pageTitle = 'Mi Horario';
+$currentPage = 'my-schedule';
+
 $monthNames = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 $dayNamesShort = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
