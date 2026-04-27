@@ -29,5 +29,8 @@ AGENTS.md
 # Tests cache
 .phpunit.cache/
 
+# Installer lock
+.installed
+
 # Docker volumes
 postgres_data/
