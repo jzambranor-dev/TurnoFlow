@@ -38,8 +38,14 @@ $extraStyles[] = <<<'STYLE'
     .header-date-day { font-size: 2rem; font-weight: 700; color: var(--corp-primary); line-height: 1; }
     .header-date-month { font-size: 0.9rem; font-weight: 600; color: var(--corp-gray-700); text-transform: uppercase; letter-spacing: 0.05em; }
     .header-date-year { font-size: 0.8rem; color: var(--corp-gray-500); }
+    .asesor-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 24px;
+    }
     @media (max-width: 768px) {
         .dashboard-header { flex-direction: column; gap: 20px; }
+        .asesor-stats-grid { grid-template-columns: 1fr; }
     }
 </style>
 STYLE;
@@ -391,11 +397,10 @@ $porcentaje = min(100, round(($horasTrabajadas / $horasMeta) * 100));
 ?>
 
 <?php if (!($advisorLinked ?? true)): ?>
-<div class="alert alert-warning d-flex align-items-center gap-3 mb-4">
-    <i class="ki-outline ki-information-3 fs-2x text-warning"></i>
+<div class="alert alert-warning">
+    <svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
     <div>
-        <strong>Cuenta no vinculada</strong>
-        <p class="mb-0 text-muted">No pudimos vincular tu cuenta con un asesor registrado. Contacta a tu supervisor para verificar tus datos.</p>
+        <strong>Cuenta no vinculada</strong> — No pudimos vincular tu cuenta con un asesor registrado. Contacta a tu supervisor para verificar tus datos.
     </div>
 </div>
 <?php endif; ?>
@@ -414,7 +419,7 @@ $porcentaje = min(100, round(($horasTrabajadas / $horasMeta) * 100));
     </div>
 </div>
 
-<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px;">
+<div class="asesor-stats-grid">
     <div class="progress-card">
         <div class="progress-ring" style="--progress: <?= $porcentaje ?>">
             <svg width="140" height="140" viewBox="0 0 140 140">

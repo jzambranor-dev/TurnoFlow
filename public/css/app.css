@@ -640,6 +640,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 }
 
 .data-table tr:last-child td { border-bottom: none; }
+.data-table tbody tr:nth-child(even) { background: var(--corp-gray-50, #f8fafc); }
 .data-table tbody tr:hover { background: var(--corp-gray-50); }
 
 .text-right { text-align: right !important; }
@@ -705,6 +706,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
     align-items: flex-start;
     gap: 16px;
     transition: all 0.2s ease;
+    box-shadow: var(--card-shadow);
 }
 
 .stat-card:hover { border-color: var(--corp-gray-300); box-shadow: var(--card-shadow-hover); }
@@ -1516,14 +1518,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
     font-weight: 700;
 }
 
-/* Info box mejorado */
-.info-box {
-    transition: all 0.2s ease;
-}
-
-.info-box:hover {
-    transform: translateX(4px);
-}
+/* Info box — static (non-interactive element, no hover transform) */
 
 /* Responsive adjustments para nuevos elementos */
 @media (max-width: 768px) {
@@ -1560,6 +1555,11 @@ button:focus-visible,
     outline-offset: 2px;
     box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
 }
+
+.btn-primary:focus-visible { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); }
+.btn-danger:focus-visible { box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3); }
+.btn-success:focus-visible { box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3); }
+.btn-warning:focus-visible { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.3); }
 
 .form-control:focus-visible,
 .form-select:focus-visible,
@@ -1601,6 +1601,16 @@ a:focus-visible {
     display: flex;
     align-items: center;
     gap: 10px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .flash-banner {
+        animation: fadeInDown 0.3s ease;
+    }
+    @keyframes fadeInDown {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
 }
 
 .flash-dismissible { position: relative; padding-right: 40px; }
