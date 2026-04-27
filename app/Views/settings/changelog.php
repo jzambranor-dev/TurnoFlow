@@ -208,6 +208,41 @@ ob_start();
                         <li>Logout migrado de GET a POST con CSRF en sidebar y header</li>
                     </ul>
                 </div>
+                <div class="cl-section">
+                    <h3><span class="cl-tag fix">Bugs</span> Quick fixes adicionales</h3>
+                    <ul class="cl-list sec">
+                        <li>Eliminado LIKE fallback en dashboard que matcheaba asesores incorrectos</li>
+                        <li>Bloqueada auto-aprobacion: supervisor no puede aprobar horarios que el mismo genero</li>
+                        <li>Excel: <code>round()</code> reemplazado por <code>floor()</code> para evitar hora 24 invalida</li>
+                        <li>Break hours lee de configuracion de campana en vez de hardcoded 0.5h</li>
+                        <li>Meta de horas mensuales lee de BD en vez de hardcoded 177h</li>
+                        <li>Timezone corregido: <code>Europe/Berlin</code> → <code>America/Guayaquil</code> configurable via <code>APP_TIMEZONE</code></li>
+                        <li>XSS en tabla de auditoria resuelta con DOM API</li>
+                        <li>ImportService: sync de horarios incompleto corregido al consolidar con ScheduleService</li>
+                    </ul>
+                </div>
+                <div class="cl-section">
+                    <h3><span class="cl-tag improve">Refactor</span> Limpieza y DRY</h3>
+                    <ul class="cl-list">
+                        <li>ScheduleController: -1200 lineas de dead code (de 2174 a 974 lineas)</li>
+                        <li><code>resolveAdvisorByUser</code> unificado en ScheduleService (3 variantes → 1)</li>
+                        <li><code>FlashMessageTrait</code> extraido para 3 controllers</li>
+                        <li>5 metodos duplicados consolidados en ScheduleService</li>
+                        <li><code>getMonthlyTarget</code> consolidado en ScheduleReportService</li>
+                    </ul>
+                </div>
+                <div class="cl-section">
+                    <h3><span class="cl-tag improve">UI</span> Polish visual</h3>
+                    <ul class="cl-list">
+                        <li>Zebra striping en tablas para mejor legibilidad</li>
+                        <li>Box-shadow en stat-cards para efecto de profundidad</li>
+                        <li>Animacion fadeIn en mensajes flash</li>
+                        <li>Focus rings contextuales en botones para accesibilidad</li>
+                        <li>Dashboard asesor responsive (3 cols → 1 en mobile)</li>
+                        <li>Confirmacion antes de aprobar horarios desde dashboard</li>
+                        <li>Aviso cuando cuenta de asesor no esta vinculada</li>
+                    </ul>
+                </div>
             </div>
         </div>
 

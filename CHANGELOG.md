@@ -42,6 +42,37 @@ Todos los cambios notables del proyecto se documentan en este archivo.
 - `app/Views/layouts/partials/sidebar.php`, `header.php`
 - `config/database.php`
 
+### Quick Fixes + Mejoras adicionales
+
+#### Bugs corregidos
+- **LIKE %nombre% en dashboard** (`DashboardController.php`): Eliminado fallback LIKE que matcheaba asesores incorrectos (ej: "Ana" matcheaba "Mariana")
+- **Self-approval bloqueado** (`ScheduleController.php`): Supervisor no puede aprobar horarios que el mismo genero — separacion de funciones
+- **Excel hora 24** (`ImportService.php`, `ScheduleService.php`): `round()` reemplazado por `floor()` + `min(23,...)` para evitar hora invalida
+- **Break hardcodeado** (`ScheduleTrackingController.php`): Lee `duracion_break_min` de la campana en vez de asumir 0.5h
+- **Meta 177h hardcodeada** (`DashboardController.php`, `dashboard/index.php`): Lee de `monthly_hours_config` con fallback 177
+- **Timezone incorrecto** (`public/index.php`): PHP usaba `Europe/Berlin` — ahora configurable via `APP_TIMEZONE` con default `America/Guayaquil`
+- **XSS en audit history** (`show.php`): Tabla de auditoria reescrita con DOM API — eliminado innerHTML con datos de usuario
+- **ImportService sync incompleto**: Copia local de `syncMonthlyScheduleHeader` no tenia guard aprobado/enviado ni UPDATE — corregido al consolidar con ScheduleService
+
+#### UX
+- **Confirm en aprobar** (`dashboard/index.php`): Dialogo de confirmacion antes de aprobar horarios desde el dashboard
+- **Aviso "cuenta no vinculada"** (`dashboard/index.php`): Banner warning cuando la cuenta del asesor no puede resolverse a un advisor
+
+#### Refactoring
+- **-1200 lineas dead code** (`ScheduleController.php`): De 2174 a 974 lineas — eliminados 10 metodos migrados a controllers dedicados + 3 helpers privados
+- **resolveAdvisorByUser unificado** (`ScheduleService.php`): 3 variantes con logica distinta consolidadas en un solo metodo determinista
+- **FlashMessageTrait** (`app/Traits/FlashMessageTrait.php`): `setFlash()` extraido a trait compartido por 3 controllers
+- **5 metodos duplicados consolidados** (`ScheduleService.php`): `syncMonthlyScheduleHeader`, `findMonthlySchedule`, `countScheduleAssignments` — eliminadas copias privadas en ScheduleController, ImportService y ScheduleImportController
+- **getMonthlyTarget consolidado** (`ScheduleReportService.php`): Eliminadas copias en ReportController y ApiReportController
+
+#### UI Polish
+- **Zebra striping** (`app.css`): Tablas con filas alternas en light mode
+- **Box-shadow en stat-cards** (`app.css`): Cards con profundidad sutil via `--card-shadow`
+- **Flash banner animation** (`app.css`): Mensajes flash con fadeInDown suave (respeta `prefers-reduced-motion`)
+- **Focus rings contextuales** (`app.css`): `box-shadow` de color en `:focus-visible` para btn-primary/danger/success/warning
+- **Dashboard asesor responsive** (`dashboard/index.php`): Grilla 3 columnas colapsa a 1 en mobile
+- **Info-box hover removido** (`app.css`): Eliminado `translateX(4px)` en elementos no interactivos
+
 ---
 
 ## [1.8.0] - 2026-04-24
