@@ -1,5 +1,12 @@
 RewriteEngine On
+
+# En XAMPP: RewriteBase /system-horario/TurnoFlow/public/
+# En produccion (DocumentRoot apunta a public/): RewriteBase /
 RewriteBase /system-horario/TurnoFlow/public/
+
+# Forzar HTTPS en produccion
+# RewriteCond %{HTTPS} off
+# RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
 # Pasar el header Authorization a PHP (Apache lo elimina por defecto)
 RewriteCond %{HTTP:Authorization} .+

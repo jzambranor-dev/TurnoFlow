@@ -19,12 +19,31 @@ class AuthController
         include APP_PATH . '/Views/auth/login.php';
     }
 
+    private const MAX_LOGIN_ATTEMPTS = 5;
+    private const LOCKOUT_SECONDS = 300; // 5 minutos
+
     public function login(): void
     {
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
         $errors = [];
+
+        // Rate limiting por IP usando sesión
+        $attempts = $_SESSION['login_attempts'] ?? [];
+        $now = time();
+
+        // Limpiar intentos expirados
+        $attempts = array_filter($attempts, fn($ts) => ($now - $ts) < self::LOCKOUT_SECONDS);
+
+        if (count($attempts) >= self::MAX_LOGIN_ATTEMPTS) {
+            $waitSeconds = self::LOCKOUT_SECONDS - ($now - min($attempts));
+            $errors[] = "Demasiados intentos. Espera " . (int)ceil($waitSeconds / 60) . " minuto(s).";
+            $_SESSION['login_attempts'] = $attempts;
+            include APP_PATH . '/Views/auth/login.php';
+            return;
+        }
 
         if (empty($email)) {
             $errors[] = 'El email es requerido';
@@ -48,7 +67,8 @@ class AuthController
                 $user = $stmt->fetch();
 
                 if ($user && password_verify($password, $user['password_hash'])) {
-                    // Login exitoso — regenerar sesion para prevenir session fixation
+                    // Login exitoso — limpiar intentos y regenerar sesion
+                    unset($_SESSION['login_attempts']);
                     session_regenerate_id(true);
                     $_SESSION['user'] = [
                         'id' => $user['id'],
@@ -62,7 +82,11 @@ class AuthController
                     header('Location: ' . BASE_URL . '/dashboard');
                     exit;
                 } else {
-                    $errors[] = 'Credenciales inválidas';
+                    // Registrar intento fallido
+                    $attempts[] = $now;
+                    $_SESSION['login_attempts'] = $attempts;
+                    $remaining = self::MAX_LOGIN_ATTEMPTS - count($attempts);
+                    $errors[] = 'Credenciales inválidas' . ($remaining <= 2 ? " ($remaining intentos restantes)" : '');
                 }
             } catch (\Exception $e) {
                 error_log("Error en login: " . $e->getMessage());

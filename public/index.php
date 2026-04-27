@@ -14,11 +14,14 @@ ini_set('log_errors', '1');
 date_default_timezone_set($_ENV['APP_TIMEZONE'] ?? 'America/Guayaquil');
 
 define('BASE_PATH', dirname(__DIR__));
-define('BASE_URL', '/system-horario/TurnoFlow/public');
 define('APP_PATH', BASE_PATH . '/app');
 
 require_once BASE_PATH . '/vendor/autoload.php';
 require_once BASE_PATH . '/config/database.php';
+
+// BASE_URL: lee de APP_URL en .env, extrae solo el path (sin dominio)
+$appUrl = $_ENV['APP_URL'] ?? '/system-horario/TurnoFlow/public';
+define('BASE_URL', rtrim(parse_url($appUrl, PHP_URL_PATH) ?: '', '/'));
 
 session_start([
     'cookie_httponly' => true,
@@ -31,7 +34,7 @@ require_once APP_PATH . '/Services/CsrfService.php';
 
 // Parse URI
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-$uri = str_replace('/system-horario/TurnoFlow/public', '', $uri);
+$uri = BASE_URL !== '' ? str_replace(BASE_URL, '', $uri) : $uri;
 $uri = $uri === '' ? '/' : (rtrim($uri, '/') ?: '/');
 $method = $_SERVER['REQUEST_METHOD'];
 
