@@ -15,7 +15,7 @@ ob_start();
     <?php unset($_SESSION['success']); endif; ?>
 
     <?php if (isset($_SESSION['error'])): ?>
-    <div class="alert alert-error">
+    <div class="alert alert-danger">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
         <?= htmlspecialchars($_SESSION['error']) ?>
     </div>
@@ -109,44 +109,6 @@ $extraStyles[] = <<<'STYLE'
 <style>
     .roles-page { max-width: 1200px; margin: 0 auto; }
 
-    .alert {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 14px 18px;
-        border-radius: 10px;
-        margin-bottom: 20px;
-        font-size: 0.875rem;
-        font-weight: 500;
-    }
-    .alert svg { width: 20px; height: 20px; flex-shrink: 0; }
-    .alert-success { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
-    .alert-success svg { fill: #16a34a; }
-    .alert-error { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
-    .alert-error svg { fill: #dc2626; }
-
-    .page-header { margin-bottom: 24px; }
-    .header-content { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
-    .header-title { font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 0 0 4px 0; }
-    .header-subtitle { font-size: 0.875rem; color: #64748b; margin: 0; }
-
-    .btn-action {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 10px 18px;
-        border-radius: 8px;
-        font-size: 0.875rem;
-        font-weight: 600;
-        text-decoration: none;
-        transition: all 0.15s ease;
-        border: none;
-        cursor: pointer;
-    }
-    .btn-action svg { width: 18px; height: 18px; }
-    .btn-primary { background: #2563eb; color: #fff; }
-    .btn-primary:hover { background: #1d4ed8; }
-
     .roles-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -155,8 +117,8 @@ $extraStyles[] = <<<'STYLE'
 
     .role-card {
         background: #fff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
+        border: 1px solid var(--corp-gray-200);
+        border-radius: var(--card-radius);
         overflow: hidden;
     }
 
@@ -165,75 +127,68 @@ $extraStyles[] = <<<'STYLE'
         align-items: flex-start;
         gap: 14px;
         padding: 20px;
-        border-left: 4px solid #2563eb;
+        border-left: 4px solid var(--corp-primary);
         position: relative;
     }
 
     .role-icon {
-        width: 44px;
-        height: 44px;
-        min-width: 44px;
+        width: 44px; height: 44px; min-width: 44px;
         border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        display: flex; align-items: center; justify-content: center;
     }
     .role-icon svg { width: 22px; height: 22px; fill: #fff; }
 
     .role-info { flex: 1; min-width: 0; }
-    .role-name { font-size: 1.1rem; font-weight: 700; color: #0f172a; margin: 0 0 4px 0; }
-    .role-desc { font-size: 0.8rem; color: #64748b; margin: 0; line-height: 1.4; }
+    .role-name { font-size: 1.1rem; font-weight: 700; color: var(--corp-gray-900); margin: 0 0 4px 0; }
+    .role-desc { font-size: 0.8rem; color: var(--corp-gray-500); margin: 0; line-height: 1.4; }
 
     .badge-base {
-        position: absolute;
-        top: 12px;
-        right: 12px;
+        position: absolute; top: 12px; right: 12px;
         padding: 3px 8px;
-        background: #f1f5f9;
-        color: #64748b;
-        font-size: 0.7rem;
-        font-weight: 600;
-        border-radius: 4px;
-        text-transform: uppercase;
+        background: var(--corp-gray-100);
+        color: var(--corp-gray-500);
+        font-size: 0.7rem; font-weight: 600;
+        border-radius: 4px; text-transform: uppercase;
     }
 
     .role-stats {
         display: flex;
-        border-top: 1px solid #f1f5f9;
-        border-bottom: 1px solid #f1f5f9;
+        border-top: 1px solid var(--corp-gray-100);
+        border-bottom: 1px solid var(--corp-gray-100);
     }
+    .role-stats .stat { flex: 1; padding: 14px; text-align: center; }
+    .role-stats .stat:first-child { border-right: 1px solid var(--corp-gray-100); }
+    .role-stats .stat-value { display: block; font-size: 1.25rem; font-weight: 700; color: var(--corp-gray-900); }
+    .role-stats .stat-label { font-size: 0.75rem; color: var(--corp-gray-500); text-transform: uppercase; }
 
-    .role-stats .stat {
-        flex: 1;
-        padding: 14px;
-        text-align: center;
-    }
-    .role-stats .stat:first-child { border-right: 1px solid #f1f5f9; }
-    .stat-value { display: block; font-size: 1.25rem; font-weight: 700; color: #0f172a; }
-    .stat-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; }
-
-    .role-actions {
-        display: flex;
-        gap: 8px;
-        padding: 14px 20px;
-    }
+    .role-actions { display: flex; gap: 8px; padding: 14px 20px; }
 
     .btn-edit {
-        flex: 1;
-        justify-content: center;
-        background: #f1f5f9;
-        color: #475569;
+        flex: 1; justify-content: center;
+        background: var(--corp-gray-100); color: var(--corp-gray-600);
     }
-    .btn-edit:hover { background: #e2e8f0; }
+    .btn-edit:hover { background: var(--corp-gray-200); }
     .btn-edit svg { fill: currentColor; }
 
     .btn-delete {
         padding: 10px 14px;
-        background: #fee2e2;
-        color: #dc2626;
+        background: #fee2e2; color: var(--corp-danger);
     }
     .btn-delete:hover { background: #fecaca; }
     .btn-delete svg { fill: currentColor; }
+
+    [data-theme="dark"] .role-card { background: var(--corp-gray-100); border-color: var(--corp-gray-200); }
+    [data-theme="dark"] .role-stats { border-color: var(--corp-gray-200); }
+    [data-theme="dark"] .role-stats .stat:first-child { border-right-color: var(--corp-gray-200); }
+    [data-theme="dark"] .btn-edit { background: var(--corp-gray-200); color: var(--corp-gray-700); }
+    [data-theme="dark"] .btn-edit:hover { background: var(--corp-gray-300); }
+    [data-theme="dark"] .btn-delete { background: rgba(220, 38, 38, 0.15); color: #fca5a5; }
+    [data-theme="dark"] .btn-delete:hover { background: rgba(220, 38, 38, 0.25); }
+
+    @media (max-width: 768px) {
+        .header-content { flex-direction: column; align-items: stretch; }
+        .roles-grid { grid-template-columns: 1fr; }
+    }
 </style>
 STYLE;
 
