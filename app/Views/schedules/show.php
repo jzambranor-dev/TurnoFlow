@@ -1043,11 +1043,15 @@ foreach ($crossCampaignHoursMap as $advId => $dateMap) {
 $crossHoursJson = json_encode((object)$crossHoursJs);
 $sharedIdsJson = json_encode(array_values($sharedAdvisorIdsList));
 $csrfToken = \App\Services\CsrfService::token();
+$baseUrlJson = json_encode($_ENV['APP_URL'] ?? '/system-horario/TurnoFlow/public');
+$csrfTokenJson = json_encode($csrfToken);
+$allDatesJson = json_encode($dates);
 
 $extraScripts[] = <<<SCRIPT
 <script>
-const BASE_URL = '{$_ENV['APP_URL']}' || '/system-horario/TurnoFlow/public';
-const CSRF_TOKEN = '{$csrfToken}';
+const BASE_URL = {$baseUrlJson};
+const CSRF_TOKEN = {$csrfTokenJson};
+const ALL_DATES = {$allDatesJson};
 const pendingChanges = [];
 let changesCounter = 0;
 
@@ -1073,52 +1077,7 @@ function setEditMode(mode) {
     if (btn) btn.classList.add('mode-btn-active');
 }
 
-// --- Toast / Snackbar System ---
-function showToast(message, type, duration) {
-    type = type || 'info';
-    duration = duration || 3500;
-    let container = document.getElementById('toastContainer');
-    if (!container) {
-        container = document.createElement('div');
-        container.id = 'toastContainer';
-        container.className = 'tf-toast-container';
-        document.body.appendChild(container);
-    }
-    const icons = {
-        success: '<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>',
-        error: '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>',
-        warning: '<path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>',
-        info: '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>'
-    };
-    const toast = document.createElement('div');
-    toast.className = 'tf-toast tf-toast-' + type;
-    toast.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor">' + (icons[type] || icons.info) + '</svg><span>' + message + '</span><button class="tf-toast-close" onclick="this.parentElement.remove()">&times;</button>';
-    container.appendChild(toast);
-    requestAnimationFrame(function() { toast.classList.add('tf-toast-show'); });
-    setTimeout(function() {
-        toast.classList.remove('tf-toast-show');
-        toast.classList.add('tf-toast-hide');
-        setTimeout(function() { toast.remove(); }, 300);
-    }, duration);
-}
-
-// --- Loading Overlay ---
-function showLoading(msg) {
-    msg = msg || 'Guardando...';
-    let overlay = document.getElementById('loadingOverlay');
-    if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.id = 'loadingOverlay';
-        overlay.className = 'tf-loading-overlay';
-        document.body.appendChild(overlay);
-    }
-    overlay.innerHTML = '<div class="tf-loading-box"><div class="tf-loading-spinner"></div><div class="tf-loading-text">' + msg + '</div></div>';
-    overlay.style.display = 'flex';
-}
-function hideLoading() {
-    const overlay = document.getElementById('loadingOverlay');
-    if (overlay) overlay.style.display = 'none';
-}
+// showToast, showLoading, hideLoading are provided by the global toast-loading.js
 
 // --- Conflict Detection ---
 function checkConflict(advisorId, hour) {
@@ -1165,7 +1124,7 @@ function applyToCell(cell) {
     if (editMode !== 'remove' && !isAssigned) {
         const conflictCamp = checkConflict(advisorId, hour);
         if (conflictCamp) {
-            showToast('Conflicto: este asesor ya esta asignado a las ' + String(hour).padStart(2,'0') + ':00 en <b>' + conflictCamp + '</b>', 'error', 4500);
+            showToast('Conflicto: este asesor ya esta asignado a las ' + String(hour).padStart(2,'0') + ':00 en ' + conflictCamp, 'error', 4500);
             return;
         }
     }
@@ -1566,9 +1525,8 @@ async function checkCoverageBeforeSubmit(form) {
     showLoading('Verificando cobertura...');
 
     try {
-        // Get all dates from the schedule by parsing the date selector
-        const dateSelect = document.querySelector('.date-picker-form select[name="date"]');
-        const dates = dateSelect ? Array.from(dateSelect.options).map(o => o.value) : [];
+        // Use server-injected dates (works on all views: monthly, advisor, daily, edit)
+        const dates = typeof ALL_DATES !== 'undefined' ? ALL_DATES : [];
 
         let allDeficits = [];
         let totalDeficitHours = 0;

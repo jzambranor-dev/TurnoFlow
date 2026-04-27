@@ -23,7 +23,7 @@ ob_start();
 
     <!-- Flash Messages -->
     <?php if (isset($_SESSION['flash_error'])): ?>
-    <div class="alert alert-danger"><?= $_SESSION['flash_error'] ?></div>
+    <div class="alert alert-danger"><?= htmlspecialchars($_SESSION['flash_error']) ?></div>
     <?php unset($_SESSION['flash_error']); endif; ?>
 
     <div class="data-panel">

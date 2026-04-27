@@ -90,10 +90,21 @@ class AuthService
     }
 
     /**
-     * Cargar permisos del usuario desde la base de datos
+     * Cargar permisos del usuario desde session cache o base de datos
      */
     private static function loadPermissions(int $rolId): void
     {
+        // Check session cache first — reuse if role matches and not stale (5 min TTL)
+        $maxAge = 300; // 5 minutes
+        if (
+            isset($_SESSION['_permissions'], $_SESSION['_permissions_role'], $_SESSION['_permissions_loaded_at'])
+            && $_SESSION['_permissions_role'] === $rolId
+            && (time() - $_SESSION['_permissions_loaded_at']) < $maxAge
+        ) {
+            self::$permissions = $_SESSION['_permissions'];
+            return;
+        }
+
         try {
             $pdo = Database::getConnection();
 
@@ -106,6 +117,11 @@ class AuthService
             $stmt->execute([':rol_id' => $rolId]);
 
             self::$permissions = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+
+            // Store in session for cross-request caching
+            $_SESSION['_permissions'] = self::$permissions;
+            $_SESSION['_permissions_role'] = $rolId;
+            $_SESSION['_permissions_loaded_at'] = time();
         } catch (\Exception $e) {
             self::$permissions = [];
         }
@@ -134,6 +150,7 @@ class AuthService
     public static function clearCache(): void
     {
         self::$permissions = null;
+        unset($_SESSION['_permissions'], $_SESSION['_permissions_role'], $_SESSION['_permissions_loaded_at']);
     }
 
     /**

@@ -4,6 +4,57 @@ Todos los cambios notables del proyecto se documentan en este archivo.
 
 ---
 
+## [1.8.0] - 2026-04-24
+
+### Auditoría de Seguridad + Hardening + UX/Accessibility
+
+#### Sprint 1 — Security Fixes (Críticos)
+- **XSS en toast/loading** (`public/js/toast-loading.js`): Reemplazado `innerHTML` con `createElement` + `textContent` en `showToast()` y `showLoading()` para prevenir inyección de HTML
+- **XSS en notificaciones** (`app/Views/layouts/main.php`): Dropdown de notificaciones reconstruido con DOM API (`createElement` + `textContent`) en lugar de string concatenation con `innerHTML`
+- **Session cookie_secure** (`public/index.php`): Agregado `cookie_secure` condicional para forzar cookie segura en HTTPS
+- **GET destructivo → POST** (`public/index.php` + `activities/assignments.php`): Ruta `/activities/assignments/{id}/remove` cambiada de GET a POST con formulario y token CSRF
+- **Password temporal = cédula** (`AdvisorController.php`): Reemplazado uso de cédula como password por `bin2hex(random_bytes(4))` — genera password aleatorio de 8 chars
+- **Password expuesta en flash** (`AdvisorController.php`): Password temporal movida a `$_SESSION['temp_password']` separada en lugar de incluirla en el flash message visible en HTML
+- **Resolución advisor por LIKE** (`ScheduleController.php`): Eliminado fallback con `LIKE '%nombre%'` que podía matchear al advisor equivocado — solo match exacto por cédula o nombre completo
+- **Seed admin con password conocido** (`sql/schema.sql`): INSERT de admin con hash de `admin123` comentado — requiere crear manualmente con password seguro
+- **`.env.example` hardening**: Placeholders genéricos con instrucciones de cambio obligatorio para producción
+
+#### Sprint 2 — Authorization & Validation
+- **Permiso `settings.edit`** (`SettingController.php` + migración `009`): Todas las operaciones de escritura en Settings ahora requieren `settings.edit` en lugar de `settings.view` — previene escalación de privilegios de lectura a escritura
+- **toggleCheckin authorization** (`ScheduleController.php`): Asesores solo pueden hacer check-in de sí mismos — validación de `advisor_id` contra usuario logueado
+- **Flash messages XSS** (`activities/index.php`, `activities/edit.php`): Flash messages envueltos con `htmlspecialchars()` para prevenir XSS almacenado
+- **Password mínimo 8 chars** (`UserController.php`): Requisito mínimo subido de 6 a 8 caracteres
+- **Validación campaigns** (`CampaignController.php`): Nombre de campaña requerido — retorna error en lugar de insertar registro vacío
+- **LIMIT/OFFSET parameterizado** (`AdvisorController.php`): Interpolación directa de `$perPage` y `$offset` reemplazada por `bindValue` con `PDO::PARAM_INT`
+
+#### Sprint 3 — Frontend / UX / Accessibility
+- **Focus-visible styles** (`public/css/app.css`): Estilos `:focus-visible` para buttons, links, form controls, sidebar items — keyboard users ahora ven dónde está el foco
+- **prefers-reduced-motion** (`public/css/app.css`): Media query para desactivar animaciones en usuarios que lo prefieren
+- **Login labels** (`auth/login.php`): Agregados atributos `id` en inputs y `for` en labels — screen readers pueden asociar labels correctamente
+- **Login brand consistency** (`auth/login.php`): Colores del login unificados con el design system (`#667eea` → `#2563eb` = `--corp-primary`)
+- **Meta noindex** (`layouts/main.php`): `<meta name="robots" content="noindex, nofollow">` — previene indexación accidental del sistema interno
+
+#### Sprint 4 — Architecture
+- **ScheduleService** (`app/Services/ScheduleService.php`): Nuevo servicio con 6 métodos estáticos extraídos de `ScheduleController` e `ImportService` para eliminar código duplicado:
+  - `syncMonthlyScheduleHeader()`, `findMonthlySchedule()`, `countScheduleAssignments()`
+  - `toBool()`, `parseHourFromCell()`, `normalizeRequiredAdvisors()`
+
+#### Migraciones ejecutadas
+- **`009_settings_edit_permission.sql`**: Permiso `settings.edit` creado y asignado a admin, coordinador, gerente
+- **`006_notifications.sql`**: Tabla `notifications` creada (faltaba en la BD)
+- **`007_audit_log.sql`**: Tabla `audit_log` creada (faltaba en la BD)
+- **`008_performance_indexes.sql`**: 6 índices de performance creados en todas las tablas clave
+
+#### Archivos modificados (19)
+- `public/index.php`, `public/js/toast-loading.js`, `public/css/app.css`
+- `app/Controllers/AdvisorController.php`, `ScheduleController.php`, `SettingController.php`, `UserController.php`, `CampaignController.php`
+- `app/Views/layouts/main.php`, `auth/login.php`, `activities/index.php`, `activities/edit.php`, `activities/assignments.php`
+- `app/Services/ScheduleService.php` (nuevo)
+- `sql/schema.sql`, `sql/migrations/009_settings_edit_permission.sql` (nuevo)
+- `.env.example`
+
+---
+
 ## [1.6.0] - 2026-04-15
 
 ### Fase 3 — Optimizaciones Tecnicas: Refactorizacion + Indices + Paginacion + UX

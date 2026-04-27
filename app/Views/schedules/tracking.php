@@ -568,60 +568,14 @@ $checkinMapJson = json_encode(array_keys($checkinMap));
 $appUrl = $_ENV['APP_URL'] ?? '/system-horario/TurnoFlow/public';
 $csrfToken = \App\Services\CsrfService::token();
 $canBypassCheckinJs = $canBypassCheckin ? 'true' : 'false';
+$appUrlJson = json_encode($appUrl);
+$csrfTokenJson = json_encode($csrfToken);
 
 $extraScripts = [];
-$extraScripts[] = <<<'TOAST_SCRIPT'
-<script>
-function showToast(message, type, duration) {
-    type = type || 'info';
-    duration = duration || 3500;
-    var container = document.getElementById('toastContainer');
-    if (!container) {
-        container = document.createElement('div');
-        container.id = 'toastContainer';
-        container.style.cssText = 'position:fixed;top:20px;right:20px;z-index:10000;display:flex;flex-direction:column;gap:10px;pointer-events:none;max-width:420px;';
-        document.body.appendChild(container);
-    }
-    var icons = {
-        success: '<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>',
-        error: '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>',
-        warning: '<path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>',
-        info: '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>'
-    };
-    var colors = { success:'#16a34a', error:'#dc2626', warning:'#d97706', info:'#2563eb' };
-    var c = colors[type] || colors.info;
-    var toast = document.createElement('div');
-    toast.style.cssText = 'display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:12px;background:#fff;border:1px solid #e2e8f0;border-left:4px solid '+c+';box-shadow:0 8px 30px rgba(0,0,0,0.12);font-size:0.85rem;font-weight:500;color:#334155;pointer-events:auto;opacity:0;transform:translateX(40px);transition:all 0.3s cubic-bezier(0.4,0,0.2,1);';
-    toast.innerHTML = '<svg viewBox="0 0 24 24" fill="'+c+'" style="width:20px;height:20px;flex-shrink:0;">'+(icons[type]||icons.info)+'</svg><span style="flex:1;line-height:1.4;">'+message+'</span><button onclick="this.parentElement.remove()" style="background:none;border:none;font-size:18px;color:#94a3b8;cursor:pointer;padding:0 0 0 8px;">&times;</button>';
-    container.appendChild(toast);
-    requestAnimationFrame(function(){ toast.style.opacity='1'; toast.style.transform='translateX(0)'; });
-    setTimeout(function(){
-        toast.style.opacity='0'; toast.style.transform='translateX(40px)';
-        setTimeout(function(){ toast.remove(); }, 300);
-    }, duration);
-}
-function showLoading(msg) {
-    msg = msg || 'Guardando...';
-    var o = document.getElementById('loadingOverlay');
-    if (!o) {
-        o = document.createElement('div');
-        o.id = 'loadingOverlay';
-        o.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(15,23,42,0.35);backdrop-filter:blur(2px);display:none;align-items:center;justify-content:center;';
-        document.body.appendChild(o);
-    }
-    o.innerHTML = '<div style="background:#fff;border-radius:16px;padding:32px 48px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.15);"><div style="width:40px;height:40px;margin:0 auto 16px;border:3px solid #e2e8f0;border-top-color:#2563eb;border-radius:50%;animation:tfspin 0.8s linear infinite;"></div><div style="font-size:0.9rem;font-weight:600;color:#475569;">'+msg+'</div></div><style>@keyframes tfspin{to{transform:rotate(360deg)}}</style>';
-    o.style.display = 'flex';
-}
-function hideLoading() {
-    var o = document.getElementById('loadingOverlay');
-    if (o) o.style.display = 'none';
-}
-</script>
-TOAST_SCRIPT;
 $extraScripts[] = <<<SCRIPT
 <script>
-const TRACKING_BASE = '{$appUrl}';
-const CSRF_TOKEN = '{$csrfToken}';
+const TRACKING_BASE = {$appUrlJson};
+const CSRF_TOKEN = {$csrfTokenJson};
 const CAN_BYPASS_CHECKIN = {$canBypassCheckinJs};
 const scheduleId = document.getElementById('trackingPanel')?.dataset.schedule;
 const pendingRecords = {};
@@ -797,11 +751,27 @@ function selectStatus(status) {
             maternidad: { l: 'Mat', c: '#be185d', bg: '#fce7f3' }
         };
         const si = labels[status] || { l: '?', c: '#64748b', bg: '#f1f5f9' };
-        let html = '<span class="cell-status" style="background:' + si.bg + ';color:' + si.c + ';" onclick="openStatusPicker(this,' + pickerAdvisor + ',\'' + pickerDate + '\')">' + si.l + '</span>';
+        cell.textContent = '';
+        var statusSpan = document.createElement('span');
+        statusSpan.className = 'cell-status';
+        statusSpan.style.background = si.bg;
+        statusSpan.style.color = si.c;
+        statusSpan.textContent = si.l;
+        statusSpan.dataset.advisor = String(pickerAdvisor);
+        statusSpan.dataset.date = pickerDate;
+        statusSpan.addEventListener('click', function() { openStatusPicker(this, Number(this.dataset.advisor), this.dataset.date); });
+        cell.appendChild(statusSpan);
         if (status === 'ausente') {
-            html += '<button type="button" class="btn-repl-mini" onclick="event.stopPropagation();openReplacementModal(' + savedAdvisor + ',\'' + savedDate + '\')" title="Gestionar Reemplazo">R</button>';
+            var replBtn = document.createElement('button');
+            replBtn.type = 'button';
+            replBtn.className = 'btn-repl-mini';
+            replBtn.title = 'Gestionar Reemplazo';
+            replBtn.textContent = 'R';
+            replBtn.dataset.advisor = String(savedAdvisor);
+            replBtn.dataset.date = savedDate;
+            replBtn.addEventListener('click', function(e) { e.stopPropagation(); openReplacementModal(Number(this.dataset.advisor), this.dataset.date); });
+            cell.appendChild(replBtn);
         }
-        cell.innerHTML = html;
         cell.dataset.status = status;
         cell.classList.remove('has-checkin');
         if (notas) cell.title = notas;
@@ -950,32 +920,73 @@ async function openReplacementModal(advisorId, fecha) {
         }
 
         // Show affected hours
-        const horasHtml = data.horas_afectadas.map(function(h) {
-            return '<span style="display:inline-block;padding:2px 8px;background:#fee2e2;color:#dc2626;border-radius:4px;font-size:12px;margin:2px;">' + String(h.hora).padStart(2, '0') + ':00</span>';
-        }).join('');
-        document.getElementById('replHorasAfectadas').innerHTML = '<b>Horas afectadas (' + data.horas_necesarias + 'h):</b> ' + horasHtml;
+        var horasContainer = document.getElementById('replHorasAfectadas');
+        horasContainer.textContent = '';
+        var horasLabel = document.createElement('b');
+        horasLabel.textContent = 'Horas afectadas (' + Number(data.horas_necesarias) + 'h):';
+        horasContainer.appendChild(horasLabel);
+        horasContainer.appendChild(document.createTextNode(' '));
+        data.horas_afectadas.forEach(function(h) {
+            var badge = document.createElement('span');
+            badge.style.cssText = 'display:inline-block;padding:2px 8px;background:#fee2e2;color:#dc2626;border-radius:4px;font-size:12px;margin:2px;';
+            badge.textContent = String(Number(h.hora)).padStart(2, '0') + ':00';
+            horasContainer.appendChild(badge);
+        });
 
         if (data.candidatos.length === 0) {
             document.getElementById('replNoCandidatos').style.display = 'block';
             return;
         }
 
-        // Build candidates list
-        let html = '';
+        // Build candidates list using DOM API
+        var listEl = document.getElementById('replCandidatosList');
+        listEl.textContent = '';
         data.candidatos.forEach(function(c) {
-            html += '<div class="repl-candidate">';
-            html += '<div class="repl-candidate-info">';
-            html += '<span class="repl-candidate-name">' + c.nombre + '</span>';
-            if (c.tiene_vpn) html += ' <span class="repl-badge repl-badge-vpn">VPN</span>';
-            html += '<div class="repl-candidate-stats">';
-            html += '<span>Mes: ' + c.horas_mes + 'h</span>';
-            html += '<span>Hoy: ' + c.horas_hoy + 'h</span>';
-            html += '<span style="color:#16a34a;font-weight:600;">Disponible: ' + c.horas_disponibles_hoy + 'h</span>';
-            html += '</div></div>';
-            html += '<button type="button" class="btn-apply-repl" onclick="applyReplacement(' + c.id + ', \'' + c.nombre.replace(/'/g, '\\\'') + '\')">Asignar</button>';
-            html += '</div>';
+            var row = document.createElement('div');
+            row.className = 'repl-candidate';
+
+            var info = document.createElement('div');
+            info.className = 'repl-candidate-info';
+
+            var nameSpan = document.createElement('span');
+            nameSpan.className = 'repl-candidate-name';
+            nameSpan.textContent = c.nombre;
+            info.appendChild(nameSpan);
+
+            if (c.tiene_vpn) {
+                var vpnBadge = document.createElement('span');
+                vpnBadge.className = 'repl-badge repl-badge-vpn';
+                vpnBadge.textContent = 'VPN';
+                info.appendChild(document.createTextNode(' '));
+                info.appendChild(vpnBadge);
+            }
+
+            var stats = document.createElement('div');
+            stats.className = 'repl-candidate-stats';
+            var sMes = document.createElement('span');
+            sMes.textContent = 'Mes: ' + Number(c.horas_mes) + 'h';
+            var sHoy = document.createElement('span');
+            sHoy.textContent = 'Hoy: ' + Number(c.horas_hoy) + 'h';
+            var sDisp = document.createElement('span');
+            sDisp.style.cssText = 'color:#16a34a;font-weight:600;';
+            sDisp.textContent = 'Disponible: ' + Number(c.horas_disponibles_hoy) + 'h';
+            stats.appendChild(sMes);
+            stats.appendChild(sHoy);
+            stats.appendChild(sDisp);
+            info.appendChild(stats);
+
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn-apply-repl';
+            btn.textContent = 'Asignar';
+            btn.dataset.id = String(c.id);
+            btn.dataset.nombre = c.nombre;
+            btn.addEventListener('click', function() { applyReplacement(Number(this.dataset.id), this.dataset.nombre); });
+
+            row.appendChild(info);
+            row.appendChild(btn);
+            listEl.appendChild(row);
         });
-        document.getElementById('replCandidatosList').innerHTML = html;
         document.getElementById('replCandidatos').style.display = 'block';
     } catch(e) {
         document.getElementById('replLoading').style.display = 'none';

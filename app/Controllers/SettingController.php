@@ -42,7 +42,7 @@ class SettingController
 
     public function saveMonthlyHours(): void
     {
-        AuthService::requirePermission('settings.view');
+        AuthService::requirePermission('settings.edit');
 
         $pdo = Database::getConnection();
         $anio = (int)($_POST['anio'] ?? 0);
@@ -77,7 +77,7 @@ class SettingController
 
     public function deleteMonthlyHours(): void
     {
-        AuthService::requirePermission('settings.view');
+        AuthService::requirePermission('settings.edit');
 
         $id = (int)($_POST['id'] ?? 0);
         if ($id > 0) {
@@ -93,7 +93,7 @@ class SettingController
 
     public function saveHoliday(): void
     {
-        AuthService::requirePermission('settings.view');
+        AuthService::requirePermission('settings.edit');
 
         $pdo = Database::getConnection();
         $fecha = trim($_POST['fecha'] ?? '');
@@ -118,7 +118,7 @@ class SettingController
 
     public function deleteHoliday(): void
     {
-        AuthService::requirePermission('settings.view');
+        AuthService::requirePermission('settings.edit');
 
         $id = (int)($_POST['id'] ?? 0);
         if ($id > 0) {
@@ -134,7 +134,7 @@ class SettingController
 
     public function saveParams(): void
     {
-        AuthService::requirePermission('settings.view');
+        AuthService::requirePermission('settings.edit');
 
         $pdo = Database::getConnection();
         $params = $_POST['params'] ?? [];
@@ -153,7 +153,7 @@ class SettingController
 
     public function createApiToken(): void
     {
-        AuthService::requirePermission('settings.view');
+        AuthService::requirePermission('settings.edit');
 
         $nombre = trim($_POST['token_nombre'] ?? '');
         $permisosRaw = $_POST['token_permisos'] ?? [];
@@ -187,7 +187,7 @@ class SettingController
 
     public function revokeApiToken(): void
     {
-        AuthService::requirePermission('settings.view');
+        AuthService::requirePermission('settings.edit');
 
         $id = (int)($_POST['id'] ?? 0);
         if ($id > 0) {

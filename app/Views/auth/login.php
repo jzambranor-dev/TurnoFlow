@@ -27,12 +27,12 @@
         .brand-logo {
             width: 80px;
             height: 80px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
             border-radius: 20px;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 10px 40px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 10px 40px rgba(37, 99, 235, 0.4);
         }
         .feature-item {
             display: flex;
@@ -59,22 +59,22 @@
         }
         .form-control-custom:focus {
             background-color: #fff;
-            border-color: #667eea;
-            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+            border-color: #2563eb;
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
         }
         .btn-login {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
             border: none;
             border-radius: 12px;
             padding: 1rem 2rem;
             font-weight: 600;
             font-size: 1rem;
             transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
         }
         .btn-login:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
+            box-shadow: 0 8px 25px rgba(37, 99, 235, 0.5);
         }
         .input-group-custom {
             position: relative;
@@ -215,7 +215,7 @@
 
                             <!-- Email -->
                             <div class="form-group mb-8">
-                                <label class="font-size-h6 font-weight-bolder text-dark-75 mb-3">
+                                <label for="login-email" class="font-size-h6 font-weight-bolder text-dark-75 mb-3">
                                     Correo Electronico
                                 </label>
                                 <div class="input-group-custom">
@@ -225,7 +225,8 @@
                                             <path d="M21 5H2.99999C2.69999 5 2.49999 5.10005 2.29999 5.30005L11.2 13.3C11.7 13.7 12.4 13.7 12.8 13.3L21.7 5.30005C21.5 5.10005 21.3 5 21 5Z" fill="currentColor"/>
                                         </svg>
                                     </span>
-                                    <input class="form-control form-control-custom input-with-icon"
+                                    <input id="login-email"
+                                           class="form-control form-control-custom input-with-icon"
                                            type="email"
                                            name="email"
                                            value="<?= htmlspecialchars($email ?? '') ?>"
@@ -237,7 +238,7 @@
 
                             <!-- Password -->
                             <div class="form-group mb-10">
-                                <label class="font-size-h6 font-weight-bolder text-dark-75 mb-3">
+                                <label for="login-password" class="font-size-h6 font-weight-bolder text-dark-75 mb-3">
                                     Contrasena
                                 </label>
                                 <div class="input-group-custom">
@@ -247,7 +248,8 @@
                                             <path d="M14.854 11.321C14.7568 11.2282 14.6388 11.1818 14.4998 11.1818H14.3333V10.2272C14.3333 9.61741 14.1041 9.09378 13.6458 8.65628C13.1875 8.21876 12.639 8 12 8C11.361 8 10.8124 8.21876 10.3541 8.65626C9.89574 9.09378 9.66663 9.6174 9.66663 10.2272V11.1818H9.49999C9.36115 11.1818 9.24306 11.2282 9.14583 11.321C9.0486 11.4138 9 11.5265 9 11.6591V14.5765C9 14.7091 9.0486 14.8216 9.14583 14.9145C9.24306 15.0073 9.36115 15.0536 9.49999 15.0536H14.5C14.6389 15.0536 14.7569 15.0073 14.8542 14.9145C14.9513 14.8216 15 14.7091 15 14.5765V11.6591C15 11.5265 14.9513 11.4138 14.854 11.321ZM13.166 11.1818H10.833V10.2272C10.833 9.95354 10.9288 9.72159 11.1203 9.53125C11.3118 9.34091 11.5409 9.24569 11.8077 9.24569H12.1922C12.459 9.24569 12.6882 9.34091 12.8796 9.53125C13.0712 9.72159 13.166 9.95354 13.166 10.2272V11.1818Z" fill="currentColor"/>
                                         </svg>
                                     </span>
-                                    <input class="form-control form-control-custom input-with-icon"
+                                    <input id="login-password"
+                                           class="form-control form-control-custom input-with-icon"
                                            type="password"
                                            name="password"
                                            placeholder="Ingresa tu contrasena"

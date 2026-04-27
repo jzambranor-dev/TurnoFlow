@@ -29,10 +29,10 @@ ob_start();
 
     <!-- Flash Messages -->
     <?php if (isset($_SESSION['flash_success'])): ?>
-    <div class="alert alert-success"><?= $_SESSION['flash_success'] ?></div>
+    <div class="alert alert-success"><?= htmlspecialchars($_SESSION['flash_success']) ?></div>
     <?php unset($_SESSION['flash_success']); endif; ?>
     <?php if (isset($_SESSION['flash_error'])): ?>
-    <div class="alert alert-danger"><?= $_SESSION['flash_error'] ?></div>
+    <div class="alert alert-danger"><?= htmlspecialchars($_SESSION['flash_error']) ?></div>
     <?php unset($_SESSION['flash_error']); endif; ?>
 
     <!-- Stats -->

@@ -190,6 +190,34 @@ class DashboardController
                 LIMIT 5
             ");
             $recentCampaigns = $stmt->fetchAll();
+
+            // Tasa de asistencia del mes actual (presentes / total registros)
+            $stmt = $pdo->prepare("
+                SELECT
+                    CASE WHEN COUNT(*) > 0
+                         THEN ROUND(COUNT(*) FILTER (WHERE status = 'presente')::numeric / COUNT(*) * 100, 1)
+                         ELSE 0
+                    END as rate
+                FROM attendance
+                WHERE EXTRACT(MONTH FROM fecha) = :mes
+                  AND EXTRACT(YEAR FROM fecha) = :anio
+            ");
+            $stmt->execute([':mes' => (int)date('n'), ':anio' => (int)date('Y')]);
+            $attendanceRate = (float)$stmt->fetchColumn();
+
+            // Cobertura promedio del mes actual (desde vista v_coverage_vs_required)
+            $stmt = $pdo->prepare("
+                SELECT
+                    CASE WHEN SUM(requeridos) > 0
+                         THEN ROUND(SUM(asignados)::numeric / SUM(requeridos) * 100, 1)
+                         ELSE 0
+                    END as rate
+                FROM v_coverage_vs_required
+                WHERE EXTRACT(MONTH FROM fecha) = :mes
+                  AND EXTRACT(YEAR FROM fecha) = :anio
+            ");
+            $stmt->execute([':mes' => (int)date('n'), ':anio' => (int)date('Y')]);
+            $coverageRate = (float)$stmt->fetchColumn();
         }
 
         // Stats para supervisor — una sola query para todos los contadores
@@ -256,7 +284,7 @@ class DashboardController
                 $mesActualNum = (int)date('n');
                 $anioActual = (int)date('Y');
 
-                // Turnos próximos
+                // Turnos próximos (count)
                 $stmt = $pdo->prepare("
                     SELECT COUNT(DISTINCT sa.fecha)
                     FROM shift_assignments sa
@@ -265,6 +293,20 @@ class DashboardController
                 ");
                 $stmt->execute([':aid' => $advisorId]);
                 $stats['upcoming_shifts'] = $stmt->fetchColumn();
+
+                // Proximos turnos detallados (3 dias)
+                $stmt = $pdo->prepare("
+                    SELECT sa.fecha, sa.hora, sa.tipo
+                    FROM shift_assignments sa
+                    JOIN schedules s ON s.id = sa.schedule_id AND s.status = 'aprobado'
+                    WHERE sa.advisor_id = :aid
+                      AND sa.fecha >= CURRENT_DATE
+                      AND sa.fecha <= CURRENT_DATE + INTERVAL '3 days'
+                      AND sa.tipo != 'break'
+                    ORDER BY sa.fecha, sa.hora
+                ");
+                $stmt->execute([':aid' => $advisorId]);
+                $upcomingShifts = $stmt->fetchAll();
 
                 // Días trabajados este mes (con asistencia confirmada: presente o tardanza)
                 $stmt = $pdo->prepare("
@@ -300,6 +342,7 @@ class DashboardController
                 $stats['upcoming_shifts'] = 0;
                 $stats['hours_this_month'] = 0;
                 $stats['days_worked'] = 0;
+                $upcomingShifts = [];
             }
         }
 

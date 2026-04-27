@@ -28,6 +28,7 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
     <title><?= htmlspecialchars($pageTitle ?? 'Dashboard') ?> - TurnoFlow</title>
     <meta name="csrf-token" content="<?= htmlspecialchars(\App\Services\CsrfService::token()) ?>">
 
@@ -189,9 +190,12 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
                     <div class="user-name"><?= htmlspecialchars($user['nombre'] ?? '') ?></div>
                     <div class="user-role"><?= ucfirst($rol) ?></div>
                 </div>
-                <a href="<?= BASE_URL ?>/logout" class="logout-btn" title="Cerrar sesion">
-                    <svg viewBox="0 0 24 24"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>
-                </a>
+                <form method="POST" action="<?= BASE_URL ?>/logout" style="display:inline">
+                    <?= \App\Services\CsrfService::field() ?>
+                    <button type="submit" class="logout-btn" title="Cerrar sesion">
+                        <svg viewBox="0 0 24 24"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>
+                    </button>
+                </form>
             </div>
         </div>
     </aside>
@@ -207,6 +211,10 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
                 <span class="role-badge" style="background: <?= $rolColor ?>"><?= ucfirst($rol) ?></span>
             </div>
             <div class="header-right">
+                <button class="theme-toggle" id="themeToggle" title="Cambiar tema">
+                    <svg class="icon-moon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/></svg>
+                    <svg class="icon-sun" viewBox="0 0 24 24" fill="currentColor"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></svg>
+                </button>
                 <div class="notif-bell-wrapper" style="position: relative;">
                     <button class="header-btn" title="Notificaciones" id="notifBellBtn" onclick="toggleNotifDropdown()">
                         <svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
@@ -274,6 +282,23 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
         }
     </script>
     <script>
+        (function() {
+            var saved = localStorage.getItem('theme');
+            var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', theme);
+
+            var toggle = document.getElementById('themeToggle');
+            if (toggle) {
+                toggle.addEventListener('click', function() {
+                    var current = document.documentElement.getAttribute('data-theme') || 'light';
+                    var next = current === 'dark' ? 'light' : 'dark';
+                    document.documentElement.setAttribute('data-theme', next);
+                    localStorage.setItem('theme', next);
+                });
+            }
+        })();
+    </script>
+    <script>
         const NOTIF_BASE = '<?= BASE_URL ?>';
         const NOTIF_ICONS = {
             'horario_enviado':    { path: 'M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z', color: '#2563eb' },
@@ -329,18 +354,38 @@ $rolColor = $rolColors[$rol] ?? '#2563eb';
                     return;
                 }
 
-                body.innerHTML = data.items.map(n => {
+                body.textContent = '';
+                data.items.forEach(function(n) {
                     const icon = NOTIF_ICONS[n.tipo] || NOTIF_ICONS['horario_enviado'];
                     const href = n.url ? NOTIF_BASE + n.url : NOTIF_BASE + '/notifications';
-                    return '<a href="' + href + '" class="notif-dropdown-item unread">'
-                        + '<div class="notif-dropdown-item-icon" style="background:' + icon.color + '20;">'
-                        + '<svg viewBox="0 0 24 24" fill="' + icon.color + '"><path d="' + icon.path + '"/></svg>'
-                        + '</div><div>'
-                        + '<div class="notif-dropdown-item-title">' + (n.titulo || '') + '</div>'
-                        + '<div class="notif-dropdown-item-msg">' + (n.mensaje || '') + '</div>'
-                        + '<div class="notif-dropdown-item-time">' + timeAgo(n.created_at) + '</div>'
-                        + '</div></a>';
-                }).join('');
+
+                    const a = document.createElement('a');
+                    a.href = href;
+                    a.className = 'notif-dropdown-item unread';
+
+                    const iconDiv = document.createElement('div');
+                    iconDiv.className = 'notif-dropdown-item-icon';
+                    iconDiv.style.background = icon.color + '20';
+                    iconDiv.innerHTML = '<svg viewBox="0 0 24 24" fill="' + icon.color + '"><path d="' + icon.path + '"/></svg>';
+
+                    const contentDiv = document.createElement('div');
+                    const titleDiv = document.createElement('div');
+                    titleDiv.className = 'notif-dropdown-item-title';
+                    titleDiv.textContent = n.titulo || '';
+                    const msgDiv = document.createElement('div');
+                    msgDiv.className = 'notif-dropdown-item-msg';
+                    msgDiv.textContent = n.mensaje || '';
+                    const timeDiv = document.createElement('div');
+                    timeDiv.className = 'notif-dropdown-item-time';
+                    timeDiv.textContent = timeAgo(n.created_at);
+
+                    contentDiv.appendChild(titleDiv);
+                    contentDiv.appendChild(msgDiv);
+                    contentDiv.appendChild(timeDiv);
+                    a.appendChild(iconDiv);
+                    a.appendChild(contentDiv);
+                    body.appendChild(a);
+                });
             } catch (e) { /* silenciar errores de red */ }
         }
 

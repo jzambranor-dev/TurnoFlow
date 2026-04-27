@@ -106,6 +106,26 @@ ob_start();
             <span class="stat-desc">En el sistema</span>
         </div>
     </div>
+    <div class="stat-card">
+        <div class="stat-icon green">
+            <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+        </div>
+        <div class="stat-content">
+            <div class="stat-label">Tasa de Asistencia</div>
+            <div class="stat-value"><?= $attendanceRate ?? 0 ?>%</div>
+            <span class="stat-desc positive">Este mes</span>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon blue">
+            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+        </div>
+        <div class="stat-content">
+            <div class="stat-label">Cobertura Promedio</div>
+            <div class="stat-value"><?= $coverageRate ?? 0 ?>%</div>
+            <span class="stat-desc positive">Este mes</span>
+        </div>
+    </div>
 </div>
 
 <!-- Quick Actions -->
@@ -211,7 +231,10 @@ ob_start();
                         <td><span class="badge badge-warning">Pendiente</span></td>
                         <td class="text-right">
                             <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>" class="action-link">Ver</a>
-                            <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/approve" class="action-link success">Aprobar</a>
+                            <form method="POST" action="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/approve" style="display:inline;">
+                                <?= \App\Services\CsrfService::field() ?>
+                                <button type="submit" class="action-link success">Aprobar</button>
+                            </form>
                         </td>
                     </tr>
                     <?php endforeach; ?>
@@ -428,6 +451,46 @@ $porcentaje = min(100, round(($horasTrabajadas / $horasMeta) * 100));
             Ver Horario
             <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
         </a>
+    </div>
+</div>
+
+<!-- Proximos Turnos -->
+<div class="data-panel" style="margin-top: 24px;">
+    <div class="panel-header">
+        <div class="panel-title">Proximos Turnos</div>
+    </div>
+    <div class="panel-body">
+        <?php if (empty($upcomingShifts)): ?>
+        <div class="empty-state" style="padding: 40px;">
+            <div class="empty-state-icon">
+                <svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
+            </div>
+            <h5>Sin turnos proximos</h5>
+            <p style="margin-bottom: 0;">No tienes turnos asignados en los proximos 3 dias</p>
+        </div>
+        <?php else: ?>
+        <?php
+            $grouped = [];
+            foreach ($upcomingShifts as $s) {
+                $grouped[$s['fecha']][] = $s;
+            }
+        ?>
+        <?php foreach ($grouped as $fecha => $turnos): ?>
+        <div style="margin-bottom: 16px;">
+            <div style="font-weight: 600; color: var(--corp-gray-900); margin-bottom: 8px;">
+                <?= date('l d/m', strtotime($fecha)) ?>
+            </div>
+            <?php foreach ($turnos as $t): ?>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 6px 0; color: var(--corp-gray-700);">
+                <span style="font-weight: 500;"><?= str_pad((string)$t['hora'], 2, '0', STR_PAD_LEFT) ?>:00</span>
+                <span class="badge badge-<?= $t['tipo'] === 'nocturno' ? 'purple' : ($t['tipo'] === 'extra' ? 'warning' : 'info') ?>">
+                    <?= htmlspecialchars(ucfirst($t['tipo'])) ?>
+                </span>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endforeach; ?>
+        <?php endif; ?>
     </div>
 </div>
 

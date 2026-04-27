@@ -300,8 +300,8 @@ INSERT INTO roles (nombre, descripcion) VALUES
     ('supervisor',  'Gestión operativa: importa dimensionamiento, genera y envía horarios')
 ON CONFLICT (nombre) DO NOTHING;
 
--- Usuario admin por defecto (password: admin123)
--- Hash generado con password_hash('admin123', PASSWORD_DEFAULT)
-INSERT INTO users (nombre, apellido, email, password_hash, rol_id) VALUES
-    ('Admin', 'Sistema', 'admin@turnoflow.local', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 1)
-ON CONFLICT (email) DO NOTHING;
+-- Usuario admin: crear manualmente con password seguro
+-- Generar hash: php -r "echo password_hash('TU_PASSWORD_SEGURO', PASSWORD_DEFAULT);"
+-- INSERT INTO users (nombre, apellido, email, password_hash, rol_id) VALUES
+--     ('Admin', 'Sistema', 'admin@turnoflow.local', 'HASH_AQUI', 1)
+-- ON CONFLICT (email) DO NOTHING;

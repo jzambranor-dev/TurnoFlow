@@ -166,6 +166,58 @@ ob_start();
 
     <div class="cl-timeline">
 
+        <!-- v1.8.0 -->
+        <div class="cl-version">
+            <div class="cl-dot major"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></div>
+            <div class="cl-version-header">
+                <span class="cl-version-tag">v1.8.0</span>
+                <span class="cl-version-date">24 Abril 2026</span>
+            </div>
+            <div class="cl-card">
+                <div class="cl-section">
+                    <h3><span class="cl-tag fix">Security</span> Auditoria de Seguridad y Hardening</h3>
+                    <ul class="cl-list sec">
+                        <li>Fix XSS en toast, loading overlay y dropdown de notificaciones — reemplazado <code>innerHTML</code> con DOM API segura</li>
+                        <li>Session cookie con flag <code>secure</code> condicional para HTTPS en produccion</li>
+                        <li>Ruta de eliminacion de asignaciones migrada de GET a POST con token CSRF</li>
+                        <li>Password temporal de asesores ahora es aleatorio (ya no usa la cedula)</li>
+                        <li>Password temporal ya no se muestra en flash messages visibles en HTML</li>
+                        <li>Eliminado fallback LIKE en resolucion asesor-usuario que podia matchear al usuario equivocado</li>
+                        <li>Seed de admin con password conocido comentado — requiere creacion manual segura</li>
+                    </ul>
+                </div>
+                <div class="cl-section">
+                    <h3><span class="cl-tag imp">Mejora</span> Autorizacion y Validacion</h3>
+                    <ul class="cl-list imp">
+                        <li>Nuevo permiso <code>settings.edit</code> — operaciones de escritura en Configuracion separadas de lectura</li>
+                        <li>Check-in de asesores validado: solo pueden hacer check-in de si mismos</li>
+                        <li>Flash messages protegidos con <code>htmlspecialchars()</code> en vistas de actividades</li>
+                        <li>Password minimo subido de 6 a 8 caracteres</li>
+                        <li>Validacion de nombre requerido al crear campanas</li>
+                        <li>LIMIT/OFFSET en listado de asesores ahora usa parametros preparados</li>
+                    </ul>
+                </div>
+                <div class="cl-section">
+                    <h3><span class="cl-tag imp">Mejora</span> Accesibilidad y UX</h3>
+                    <ul class="cl-list imp">
+                        <li>Estilos <code>:focus-visible</code> en botones, links, inputs y sidebar — navegacion por teclado visible</li>
+                        <li>Soporte <code>prefers-reduced-motion</code> para usuarios que prefieren sin animaciones</li>
+                        <li>Labels correctamente asociados a inputs en pagina de login</li>
+                        <li>Colores del login unificados con el design system corporativo</li>
+                        <li>Meta <code>noindex</code> para prevenir indexacion accidental del sistema interno</li>
+                    </ul>
+                </div>
+                <div class="cl-section">
+                    <h3><span class="cl-tag new">Nuevo</span> Arquitectura</h3>
+                    <ul class="cl-list feat">
+                        <li>Nuevo <code>ScheduleService</code> con 6 metodos compartidos extraidos de ScheduleController e ImportService</li>
+                        <li>Migraciones 006, 007 y 008 ejecutadas — tablas de notificaciones, auditoria e indices de performance activos</li>
+                        <li>Migracion 009: permiso <code>settings.edit</code> asignado a admin, coordinador y gerente</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
         <!-- v1.7.0 -->
         <div class="cl-version">
             <div class="cl-dot major"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></div>

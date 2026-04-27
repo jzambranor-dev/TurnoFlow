@@ -832,7 +832,7 @@ class ScheduleController
 
         $stmt = $pdo->prepare("
             UPDATE schedules SET status = 'enviado'
-            WHERE id = :id AND status = 'borrador'
+            WHERE id = :id AND status IN ('borrador', 'rechazado')
         ");
         $stmt->execute([':id' => $id]);
 
@@ -1217,19 +1217,38 @@ class ScheduleController
 
     private function resolveAdvisorByUser(PDO $pdo, array $user): ?array
     {
+        // Strategy 1: Extract cedula from email pattern asesor{cedula}[@suffix]@turnoflow.local
+        // buildAdvisorEmail generates: asesor{cleanCedula}@turnoflow.local (or with numeric suffix on collision)
+        $email = (string)($user['email'] ?? '');
+        if (preg_match('/^asesor([0-9a-zA-Z]+)@turnoflow\.local$/i', $email, $matches)) {
+            $localPart = $matches[1];
+            // Try exact match first, then strip trailing digits for collision-suffix
+            $candidates = [$localPart];
+            if (preg_match('/^(.+\D)(\d+)$/', $localPart, $m)) {
+                $candidates[] = $m[1];
+            }
+            foreach ($candidates as $candidate) {
+                $stmt = $pdo->prepare("
+                    SELECT a.* FROM advisors a
+                    WHERE LOWER(a.cedula) = LOWER(:cedula)
+                    LIMIT 1
+                ");
+                $stmt->execute([':cedula' => $candidate]);
+                $advisor = $stmt->fetch();
+                if ($advisor) {
+                    return $advisor;
+                }
+            }
+        }
+
+        // Strategy 2: Exact full name match (user ↔ advisor)
         $stmt = $pdo->prepare("
-            SELECT a.* FROM advisors a
-            WHERE LOWER(a.cedula) = LOWER(:email) OR EXISTS (
-                SELECT 1 FROM users u WHERE u.id = :user_id AND
-                (LOWER(u.email) LIKE LOWER(CONCAT('%', a.cedula, '%')) OR
-                 LOWER(a.nombres || ' ' || a.apellidos) = LOWER(u.nombre || ' ' || u.apellido))
-            )
+            SELECT a.* FROM advisors a, users u
+            WHERE u.id = :user_id
+              AND LOWER(a.nombres || ' ' || a.apellidos) = LOWER(u.nombre || ' ' || u.apellido)
             LIMIT 1
         ");
-        $stmt->execute([
-            ':email' => (string)($user['email'] ?? ''),
-            ':user_id' => (int)($user['id'] ?? 0),
-        ]);
+        $stmt->execute([':user_id' => (int)($user['id'] ?? 0)]);
         $advisor = $stmt->fetch();
 
         if ($advisor) {
@@ -1257,20 +1276,8 @@ class ScheduleController
             return null;
         }
 
-        $stmt = $pdo->prepare("
-            SELECT a.* FROM advisors a
-            WHERE LOWER(a.nombres) LIKE LOWER(:first_name_like)
-              AND LOWER(a.apellidos) LIKE LOWER(:last_name_like)
-            ORDER BY a.id ASC
-            LIMIT 1
-        ");
-        $stmt->execute([
-            ':first_name_like' => '%' . $firstName . '%',
-            ':last_name_like' => '%' . $lastName . '%',
-        ]);
-
-        $row = $stmt->fetch();
-        return $row ?: null;
+        // No usar LIKE — match parcial puede resolver al advisor equivocado
+        return null;
     }
 
     /**
@@ -1458,6 +1465,17 @@ class ScheduleController
         $input = json_decode(file_get_contents('php://input'), true);
         $advisorId = (int)($input['advisor_id'] ?? 0);
         $fecha = (string)($input['fecha'] ?? '');
+
+        // Asesores solo pueden hacer check-in de sí mismos
+        $user = $_SESSION['user'];
+        if (($user['rol'] ?? '') === 'asesor') {
+            $pdo = \Database::getConnection();
+            $ownAdvisor = $this->resolveAdvisorByUser($pdo, $user);
+            if (!$ownAdvisor || (int)$ownAdvisor['id'] !== $advisorId) {
+                echo json_encode(['success' => false, 'error' => 'No autorizado']);
+                exit;
+            }
+        }
 
         $result = \App\Services\AttendanceService::toggleCheckin($scheduleId, $advisorId, $fecha);
 

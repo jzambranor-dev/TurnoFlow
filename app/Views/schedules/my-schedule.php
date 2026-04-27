@@ -26,7 +26,7 @@ if ($currentSchedule) {
 } else {
     $scheduleMonth = (int)date('n');
     $scheduleYear = (int)date('Y');
-    $campaignName = $advisor ? htmlspecialchars($currentSchedule['campaign_nombre'] ?? 'Sin campana') : '';
+    $campaignName = ($advisor && $currentSchedule) ? htmlspecialchars($currentSchedule['campaign_nombre'] ?? 'Sin campaña') : '';
 }
 
 // Organize assignments by date with type support

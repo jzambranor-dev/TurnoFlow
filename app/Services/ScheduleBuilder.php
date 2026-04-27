@@ -118,6 +118,7 @@ class ScheduleBuilder
             $totalHorasReq += array_sum($hrs);
         }
         $numAsesores = count($this->advisors);
+        if ($numAsesores === 0) return 0;
         $horasCuotaMensual = $totalHorasReq / $numAsesores;
 
         // Calcular máximo de libres por día según dimensionamiento (para limitar freeTargets)
@@ -310,6 +311,7 @@ class ScheduleBuilder
             $totalHorasReq += array_sum($hrs);
         }
         $numAsesores = count($this->advisors);
+        if ($numAsesores === 0) return 0;
         $horasCuotaMensual = $totalHorasReq / $numAsesores;
 
         $maxLibresTotalPeriodo = 0;
@@ -524,39 +526,57 @@ class ScheduleBuilder
             ON CONFLICT (advisor_id, fecha, hora) DO NOTHING
         ");
 
-        $count = 0;
-        foreach ($this->assignments as $fecha => $horasData) {
-            if ($fecha < $fromDate) continue; // Solo insertar fechas nuevas
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+        try {
+            $count = 0;
+            $advisorDayCount = [];
+            foreach ($this->assignments as $fecha => $horasData) {
+                if ($fecha < $fromDate) continue; // Solo insertar fechas nuevas
 
-            foreach ($horasData as $hora => $advisorIds) {
-                foreach ($advisorIds as $advId => $_partial) {
-                    $horasHoy = count($this->advisorSchedule[$advId][$fecha] ?? []);
-                    $esExtra = $horasHoy > 8;
+                foreach ($horasData as $hora => $advisorIds) {
+                    foreach ($advisorIds as $advId => $_partial) {
+                        $esBreak = isset($this->breakAssignments[$advId][$fecha])
+                            && $this->breakAssignments[$advId][$fecha] === $hora;
 
-                    $esBreak = isset($this->breakAssignments[$advId][$fecha])
-                        && $this->breakAssignments[$advId][$fecha] === $hora;
+                        $key = "{$advId}_{$fecha}";
+                        if (!$esBreak) {
+                            $advisorDayCount[$key] = ($advisorDayCount[$key] ?? 0) + 1;
+                        }
+                        $esExtra = !$esBreak && $advisorDayCount[$key] > 8;
 
-                    if ($esBreak) {
-                        $tipo = 'break';
-                    } else {
-                        $tipo = $this->esHoraNocturna($hora) ? 'nocturno' : ($esExtra ? 'extra' : 'normal');
+                        if ($esBreak) {
+                            $tipo = 'break';
+                        } else {
+                            $tipo = $this->esHoraNocturna($hora) ? 'nocturno' : ($esExtra ? 'extra' : 'normal');
+                        }
+
+                        $stmt->execute([
+                            ':sid' => $this->scheduleId,
+                            ':aid' => $advId,
+                            ':cid' => $this->campaignId,
+                            ':fecha' => $fecha,
+                            ':hora' => $hora,
+                            ':tipo' => $tipo,
+                            ':extra' => $esBreak ? 'false' : ($esExtra ? 'true' : 'false'),
+                            ':mod' => $this->getModalidad($hora),
+                        ]);
+                        if ($stmt->rowCount() > 0) $count++;
                     }
-
-                    $stmt->execute([
-                        ':sid' => $this->scheduleId,
-                        ':aid' => $advId,
-                        ':cid' => $this->campaignId,
-                        ':fecha' => $fecha,
-                        ':hora' => $hora,
-                        ':tipo' => $tipo,
-                        ':extra' => $esBreak ? 'false' : ($esExtra ? 'true' : 'false'),
-                        ':mod' => $this->getModalidad($hora),
-                    ]);
-                    if ($stmt->rowCount() > 0) $count++;
                 }
             }
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+            return $count;
+        } catch (\Exception $e) {
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
         }
-        return $count;
     }
 
     // ==========================================================
@@ -1866,8 +1886,9 @@ class ScheduleBuilder
     {
         $this->tieneVelada = $this->toBool($this->campaign['tiene_velada']);
         $this->horaFinVelada = (int)$this->campaign['hora_fin_velada'];
-        $this->horasVelada = range(0, 6);
-        $this->horasTransicion = [22, 23];
+        $this->horasVelada = range(0, max(0, $this->horaFinVelada - 1));
+        $iniNoc = (int)($this->campaign['hora_inicio_nocturno'] ?? 22);
+        $this->horasTransicion = range($iniNoc, 23);
 
         $this->veladaEligible = [];
         if ($this->tieneVelada) {
@@ -1950,18 +1971,25 @@ class ScheduleBuilder
             ON CONFLICT (advisor_id, fecha, hora) DO NOTHING
         ");
 
-        $this->pdo->beginTransaction();
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
         try {
             $count = 0;
+            $advisorDayCount = [];
             foreach ($this->assignments as $fecha => $horasData) {
                 foreach ($horasData as $hora => $advisorIds) {
                     foreach ($advisorIds as $advId => $_) {
-                        $horasHoy = count($this->advisorSchedule[$advId][$fecha] ?? []);
-                        $esExtra = $horasHoy > 8;
-
                         // Verificar si esta hora es un break para este asesor
                         $esBreak = isset($this->breakAssignments[$advId][$fecha])
                             && $this->breakAssignments[$advId][$fecha] === $hora;
+
+                        $key = "{$advId}_{$fecha}";
+                        if (!$esBreak) {
+                            $advisorDayCount[$key] = ($advisorDayCount[$key] ?? 0) + 1;
+                        }
+                        $esExtra = !$esBreak && $advisorDayCount[$key] > 8;
 
                         if ($esBreak) {
                             $tipo = 'break';
@@ -1983,10 +2011,14 @@ class ScheduleBuilder
                     }
                 }
             }
-            $this->pdo->commit();
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
             return $count;
         } catch (\Exception $e) {
-            $this->pdo->rollBack();
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
             throw $e;
         }
     }

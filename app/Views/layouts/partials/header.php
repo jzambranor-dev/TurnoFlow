@@ -102,10 +102,13 @@ $user = $_SESSION['user'] ?? null;
                         <div class="separator my-2"></div>
 
                         <div class="menu-item px-5">
-                            <a href="<?= BASE_URL ?>/logout" class="menu-link px-5">
-                                <i class="ki-outline ki-exit-right fs-4 me-2"></i>
-                                Cerrar Sesión
-                            </a>
+                            <form method="POST" action="<?= BASE_URL ?>/logout" style="display:inline;width:100%;">
+                                <?= \App\Services\CsrfService::field() ?>
+                                <button type="submit" class="menu-link px-5" style="background:none;border:none;cursor:pointer;width:100%;text-align:left;">
+                                    <i class="ki-outline ki-exit-right fs-4 me-2"></i>
+                                    Cerrar Sesión
+                                </button>
+                            </form>
                         </div>
                     </div>
                 </div>

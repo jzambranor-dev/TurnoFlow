@@ -31,7 +31,11 @@ class CsrfService
     public static function validate(): bool
     {
         $token = $_POST['_csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-        return hash_equals(self::token(), $token);
+        $valid = hash_equals(self::token(), $token);
+        if ($valid) {
+            $_SESSION['_csrf_token'] = bin2hex(random_bytes(32));
+        }
+        return $valid;
     }
 
     /**

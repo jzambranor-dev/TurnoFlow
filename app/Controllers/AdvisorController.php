@@ -88,10 +88,15 @@ class AdvisorController
                    ac.tiene_vpn, ac.permite_extras, ac.max_horas_dia as constraint_max_horas
                 {$baseSQL}
                 ORDER BY a.apellidos, a.nombres
-                LIMIT {$perPage} OFFSET {$offset}";
+                LIMIT :_limit OFFSET :_offset";
 
         $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
+        foreach ($params as $k => $v) {
+            $stmt->bindValue($k, $v);
+        }
+        $stmt->bindValue(':_limit', $perPage, \PDO::PARAM_INT);
+        $stmt->bindValue(':_offset', $offset, \PDO::PARAM_INT);
+        $stmt->execute();
         $advisors = $stmt->fetchAll();
 
         // Stats counts (unfiltered for this user's scope)
@@ -177,6 +182,19 @@ class AdvisorController
         }
 
         $pdo = Database::getConnection();
+
+        // Validate campaign ownership for supervisors
+        $user = $_SESSION['user'];
+        if (!AuthService::canManageAllCampaigns($user)) {
+            $stmtCheck = $pdo->prepare("SELECT id FROM campaigns WHERE id = :cid AND supervisor_id = :uid");
+            $stmtCheck->execute([':cid' => $campaign_id, ':uid' => $user['id']]);
+            if (!$stmtCheck->fetch()) {
+                $this->setFlash('error', 'No tienes permiso para crear asesores en esta campaña.');
+                header('Location: ' . BASE_URL . '/advisors');
+                exit;
+            }
+        }
+
         $pdo->beginTransaction();
 
         try {
@@ -237,7 +255,7 @@ class AdvisorController
         $message = 'Asesor creado correctamente.';
         if (($account['created'] ?? false) && !empty($account['email'])) {
             $message .= sprintf(
-                ' Usuario creado: %s (clave temporal: %s).',
+                ' Usuario creado: %s / Contrasena temporal: %s',
                 $account['email'],
                 $account['password']
             );
@@ -687,7 +705,7 @@ class AdvisorController
             return ['created' => false, 'email' => $email, 'password' => null];
         }
 
-        $passwordPlain = $cedula !== '' ? $cedula : 'asesor123';
+        $passwordPlain = bin2hex(random_bytes(4));
         $passwordHash = password_hash($passwordPlain, PASSWORD_DEFAULT);
 
         $stmtInsert = $pdo->prepare("

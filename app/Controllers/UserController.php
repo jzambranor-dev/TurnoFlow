@@ -67,6 +67,12 @@ class UserController
             exit;
         }
 
+        if (strlen($password) < 8) {
+            $_SESSION['error'] = 'La contrasena debe tener al menos 8 caracteres.';
+            header('Location: ' . BASE_URL . '/users/create');
+            exit;
+        }
+
         $pdo = Database::getConnection();
 
         // Verificar email unico
@@ -181,8 +187,8 @@ class UserController
         $password = $_POST['password'] ?? '';
         $password_confirm = $_POST['password_confirm'] ?? '';
 
-        if (empty($password) || strlen($password) < 6) {
-            $_SESSION['error'] = 'La contrasena debe tener al menos 6 caracteres';
+        if (empty($password) || strlen($password) < 8) {
+            $_SESSION['error'] = 'La contrasena debe tener al menos 8 caracteres';
             header('Location: ' . BASE_URL . '/users/' . $id . '/edit');
             exit;
         }
@@ -211,6 +217,12 @@ class UserController
     public function toggleStatus(int $id): void
     {
         AuthService::requirePermission('users.edit');
+
+        if ($id === (int)$_SESSION['user']['id']) {
+            $_SESSION['error'] = 'No puedes desactivar tu propia cuenta.';
+            header('Location: ' . BASE_URL . '/users');
+            exit;
+        }
 
         $pdo = Database::getConnection();
 

@@ -3,147 +3,108 @@
 declare(strict_types=1);
 
 /**
- * TurnoFlow - Punto de entrada principal
+ * TurnoFlow - Router Principal
+ * v1.9.0 — Tabla de rutas con dispatcher
  */
 
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
 ini_set('log_errors', '1');
 
-// Constantes de rutas
 define('BASE_PATH', dirname(__DIR__));
 define('BASE_URL', '/system-horario/TurnoFlow/public');
 define('APP_PATH', BASE_PATH . '/app');
 
-// Autoloader de Composer
 require_once BASE_PATH . '/vendor/autoload.php';
-
-// Configuración de base de datos
 require_once BASE_PATH . '/config/database.php';
 
-// Iniciar sesión con opciones seguras
 session_start([
     'cookie_httponly' => true,
     'cookie_samesite' => 'Lax',
+    'cookie_secure' => (($_SERVER['HTTPS'] ?? '') === 'on'),
     'use_strict_mode' => true,
 ]);
 
-// CSRF Service
 require_once APP_PATH . '/Services/CsrfService.php';
 
-// Obtener la URI
-$requestUri = $_SERVER['REQUEST_URI'];
-$basePath = '/system-horario/TurnoFlow/public';
-
-// Remover base path y query string
-$uri = parse_url($requestUri, PHP_URL_PATH);
-$uri = str_replace($basePath, '', $uri);
-$uri = $uri === '' ? '/' : $uri;
-$uri = rtrim($uri, '/') ?: '/';
-
+// Parse URI
+$uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$uri = str_replace('/system-horario/TurnoFlow/public', '', $uri);
+$uri = $uri === '' ? '/' : (rtrim($uri, '/') ?: '/');
 $method = $_SERVER['REQUEST_METHOD'];
-$routeKey = "{$method} {$uri}";
 
-// =====================
-// API REST (autenticacion por Bearer token, sin sesion)
-// =====================
+// =============================================
+// API ROUTES (Bearer token auth, no session)
+// =============================================
 
 if (str_starts_with($uri, '/api/')) {
     header('Content-Type: application/json; charset=utf-8');
     require_once APP_PATH . '/Services/ApiAuthService.php';
 
+    $apiRoutes = [
+        'GET /api/reports/campaigns'    => ['ApiReportController', 'campaigns'],
+        'GET /api/reports/unified'      => ['ApiReportController', 'unified'],
+    ];
+
+    $apiRegexRoutes = [
+        ['GET', '#^/api/reports/hours/(\d+)$#',       'ApiReportController', 'hours'],
+        ['GET', '#^/api/reports/attendance/(\d+)$#',   'ApiReportController', 'attendance'],
+        ['GET', '#^/api/schedules/(\d+)/coverage-check$#', 'ScheduleApiController', 'coverageCheck', 'session'],
+        ['GET', '#^/api/audit/schedule/(\d+)$#',       'AuditController', 'scheduleHistory'],
+    ];
+
+    // Session-required API endpoints
+    $apiSessionRoutes = [
+        'GET /api/notifications/unread'        => ['NotificationController', 'getUnread'],
+        'GET /api/dashboard/coverage-trend'     => ['DashboardController', 'coverageTrend'],
+        'GET /api/dashboard/schedule-stats'     => ['DashboardController', 'scheduleStats'],
+        'GET /api/dashboard/advisor-hours'      => ['DashboardController', 'advisorHours'],
+    ];
+
     try {
-        // API - Listar campanas
-        if ($routeKey === 'GET /api/reports/campaigns') {
-            require_once APP_PATH . '/Controllers/ApiReportController.php';
-            $controller = new App\Controllers\ApiReportController();
-            $controller->campaigns();
+        $routeKey = "{$method} {$uri}";
+
+        // Exact match API routes
+        if (isset($apiRoutes[$routeKey])) {
+            [$ctrl, $action] = $apiRoutes[$routeKey];
+            require_once APP_PATH . "/Controllers/{$ctrl}.php";
+            $c = new ("App\\Controllers\\{$ctrl}")();
+            $c->$action();
             exit;
         }
 
-        // API - Reporte de horas por campana
-        if ($method === 'GET' && preg_match('#^/api/reports/hours/(\d+)$#', $uri, $matches)) {
-            require_once APP_PATH . '/Controllers/ApiReportController.php';
-            $controller = new App\Controllers\ApiReportController();
-            $controller->hours((int)$matches[1]);
-            exit;
-        }
-
-        // API - Reporte unificado (todas las campanas)
-        if ($routeKey === 'GET /api/reports/unified') {
-            require_once APP_PATH . '/Controllers/ApiReportController.php';
-            $controller = new App\Controllers\ApiReportController();
-            $controller->unified();
-            exit;
-        }
-
-        // API - Reporte de asistencia por campana
-        if ($method === 'GET' && preg_match('#^/api/reports/attendance/(\d+)$#', $uri, $matches)) {
-            require_once APP_PATH . '/Controllers/ApiReportController.php';
-            $controller = new App\Controllers\ApiReportController();
-            $controller->attendance((int)$matches[1]);
-            exit;
-        }
-
-        // API - Notificaciones no leidas (requiere sesion)
-        if ($routeKey === 'GET /api/notifications/unread') {
+        // Session-required API routes
+        if (isset($apiSessionRoutes[$routeKey])) {
             if (!isset($_SESSION['user'])) {
                 http_response_code(401);
                 echo json_encode(['success' => false, 'error' => 'No autenticado']);
                 exit;
             }
-            require_once APP_PATH . '/Controllers/NotificationController.php';
-            $controller = new App\Controllers\NotificationController();
-            $controller->getUnread();
+            [$ctrl, $action] = $apiSessionRoutes[$routeKey];
+            require_once APP_PATH . "/Controllers/{$ctrl}.php";
+            $c = new ("App\\Controllers\\{$ctrl}")();
+            $c->$action();
             exit;
         }
 
-        // API - Dashboard endpoints (requiere sesion)
-        if (str_starts_with($uri, '/api/dashboard/')) {
-            if (!isset($_SESSION['user'])) {
-                http_response_code(401);
-                echo json_encode(['success' => false, 'error' => 'No autenticado']);
-                exit;
-            }
-            require_once APP_PATH . '/Controllers/DashboardController.php';
-            $controller = new App\Controllers\DashboardController();
-
-            if ($routeKey === 'GET /api/dashboard/coverage-trend') {
-                $controller->coverageTrend();
-                exit;
-            }
-            if ($routeKey === 'GET /api/dashboard/schedule-stats') {
-                $controller->scheduleStats();
-                exit;
-            }
-            if ($routeKey === 'GET /api/dashboard/advisor-hours') {
-                $controller->advisorHours();
+        // Regex API routes
+        foreach ($apiRegexRoutes as $route) {
+            $requireSession = ($route[4] ?? '') === 'session';
+            if ($method === $route[0] && preg_match($route[1], $uri, $matches)) {
+                if ($requireSession && !isset($_SESSION['user'])) {
+                    http_response_code(401);
+                    echo json_encode(['success' => false, 'error' => 'No autenticado']);
+                    exit;
+                }
+                $ctrl = $route[2];
+                $action = $route[3];
+                require_once APP_PATH . "/Controllers/{$ctrl}.php";
+                $c = new ("App\\Controllers\\{$ctrl}")();
+                $c->$action((int)$matches[1]);
                 exit;
             }
         }
 
-        // API - Coverage check de un schedule
-        if ($method === 'GET' && preg_match('#^/api/schedules/(\d+)/coverage-check$#', $uri, $matches)) {
-            if (!isset($_SESSION['user'])) {
-                http_response_code(401);
-                echo json_encode(['success' => false, 'error' => 'No autenticado']);
-                exit;
-            }
-            require_once APP_PATH . '/Controllers/ScheduleController.php';
-            $controller = new App\Controllers\ScheduleController();
-            $controller->coverageCheck((int)$matches[1]);
-            exit;
-        }
-
-        // API - Historial de auditoria de un schedule
-        if ($method === 'GET' && preg_match('#^/api/audit/schedule/(\d+)$#', $uri, $matches)) {
-            require_once APP_PATH . '/Controllers/AuditController.php';
-            $controller = new App\Controllers\AuditController();
-            $controller->scheduleHistory((int)$matches[1]);
-            exit;
-        }
-
-        // API - Ruta no encontrada
         http_response_code(404);
         echo json_encode(['success' => false, 'error' => 'Endpoint no encontrado']);
         exit;
@@ -155,9 +116,11 @@ if (str_starts_with($uri, '/api/')) {
     }
 }
 
-// =====================
-// RUTAS PUBLICAS
-// =====================
+// =============================================
+// PUBLIC ROUTES (no auth required)
+// =============================================
+
+$routeKey = "{$method} {$uri}";
 
 if ($routeKey === 'GET /' || $routeKey === 'GET /login') {
     if (isset($_SESSION['user'])) {
@@ -165,608 +128,186 @@ if ($routeKey === 'GET /' || $routeKey === 'GET /login') {
         exit;
     }
     require_once APP_PATH . '/Controllers/AuthController.php';
-    $controller = new App\Controllers\AuthController();
-    $controller->showLogin();
+    (new App\Controllers\AuthController())->showLogin();
     exit;
 }
 
 if ($routeKey === 'POST /' || $routeKey === 'POST /login') {
     \App\Services\CsrfService::validateOrFail();
     require_once APP_PATH . '/Controllers/AuthController.php';
-    $controller = new App\Controllers\AuthController();
-    $controller->login();
+    (new App\Controllers\AuthController())->login();
     exit;
 }
 
-if ($routeKey === 'GET /logout') {
+if ($routeKey === 'POST /logout') {
+    \App\Services\CsrfService::validateOrFail();
     require_once APP_PATH . '/Controllers/AuthController.php';
-    $controller = new App\Controllers\AuthController();
-    $controller->logout();
+    (new App\Controllers\AuthController())->logout();
     exit;
 }
 
-// =====================
-// VERIFICAR AUTENTICACION
-// =====================
+// =============================================
+// AUTH WALL
+// =============================================
 
 if (!isset($_SESSION['user'])) {
     header('Location: ' . BASE_URL . '/login');
     exit;
 }
 
-// =====================
-// CSRF — validar en todas las peticiones POST autenticadas
-// (login ya se valida arriba; las APIs JSON usan header X-CSRF-TOKEN)
-// =====================
-
+// CSRF on all authenticated POST
 if ($method === 'POST') {
     \App\Services\CsrfService::validateOrFail();
 }
 
-// =====================
-// RUTAS PROTEGIDAS
-// =====================
-
-// Dashboard
-if ($routeKey === 'GET /dashboard') {
-    require_once APP_PATH . '/Controllers/DashboardController.php';
-    $controller = new App\Controllers\DashboardController();
-    $controller->index();
-    exit;
-}
-
-// Notificaciones
-if ($routeKey === 'GET /notifications') {
-    require_once APP_PATH . '/Controllers/NotificationController.php';
-    $controller = new App\Controllers\NotificationController();
-    $controller->index();
-    exit;
-}
-
-if ($routeKey === 'POST /notifications/read-all') {
-    require_once APP_PATH . '/Controllers/NotificationController.php';
-    $controller = new App\Controllers\NotificationController();
-    $controller->markAllRead();
-    exit;
-}
-
-if ($method === 'POST' && preg_match('#^/notifications/(\d+)/read$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/NotificationController.php';
-    $controller = new App\Controllers\NotificationController();
-    $controller->markRead((int)$matches[1]);
-    exit;
-}
-
-// Campañas
-if ($routeKey === 'GET /campaigns') {
-    require_once APP_PATH . '/Controllers/CampaignController.php';
-    $controller = new App\Controllers\CampaignController();
-    $controller->index();
-    exit;
-}
-
-if ($routeKey === 'GET /campaigns/create') {
-    require_once APP_PATH . '/Controllers/CampaignController.php';
-    $controller = new App\Controllers\CampaignController();
-    $controller->create();
-    exit;
-}
-
-if ($routeKey === 'POST /campaigns') {
-    require_once APP_PATH . '/Controllers/CampaignController.php';
-    $controller = new App\Controllers\CampaignController();
-    $controller->store();
-    exit;
-}
-
-// Asesores
-if ($routeKey === 'GET /advisors') {
-    require_once APP_PATH . '/Controllers/AdvisorController.php';
-    $controller = new App\Controllers\AdvisorController();
-    $controller->index();
-    exit;
-}
-
-if ($routeKey === 'GET /advisors/bulk-config') {
-    require_once APP_PATH . '/Controllers/AdvisorController.php';
-    $controller = new App\Controllers\AdvisorController();
-    $controller->bulkConfig();
-    exit;
-}
-
-if ($routeKey === 'POST /advisors/bulk-config') {
-    require_once APP_PATH . '/Controllers/AdvisorController.php';
-    $controller = new App\Controllers\AdvisorController();
-    $controller->bulkConfigStore();
-    exit;
-}
-
-if ($routeKey === 'GET /advisors/create') {
-    require_once APP_PATH . '/Controllers/AdvisorController.php';
-    $controller = new App\Controllers\AdvisorController();
-    $controller->create();
-    exit;
-}
-
-if ($routeKey === 'POST /advisors') {
-    require_once APP_PATH . '/Controllers/AdvisorController.php';
-    $controller = new App\Controllers\AdvisorController();
-    $controller->store();
-    exit;
-}
-
-// Mi Horario (para asesores)
-if ($routeKey === 'GET /my-schedule') {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->mySchedule();
-    exit;
-}
-
-// Horarios
-if ($routeKey === 'GET /schedules') {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->index();
-    exit;
-}
-
-if ($routeKey === 'GET /schedules/generate') {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->showGenerate();
-    exit;
-}
-
-if ($routeKey === 'POST /schedules/generate') {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->generate();
-    exit;
-}
-
-if ($routeKey === 'POST /schedules/regenerate-partial') {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->regeneratePartial();
-    exit;
-}
-
-if ($routeKey === 'GET /schedules/import') {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->showImport();
-    exit;
-}
-
-if ($routeKey === 'POST /schedules/import') {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->import();
-    exit;
-}
-
-if ($method === 'POST' && preg_match('#^/schedules/imports/(\d+)/delete$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->deleteImport((int)$matches[1]);
-    exit;
-}
-
-// Reportes
-if ($routeKey === 'GET /reports') {
-    require_once APP_PATH . '/Controllers/ReportController.php';
-    $controller = new App\Controllers\ReportController();
-    $controller->index();
-    exit;
-}
-
-if ($method === 'GET' && preg_match('#^/reports/hours/(\d+)$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ReportController.php';
-    $controller = new App\Controllers\ReportController();
-    $controller->hours((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'GET' && preg_match('#^/reports/hours/(\d+)/export$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ReportController.php';
-    $controller = new App\Controllers\ReportController();
-    $controller->exportHours((int)$matches[1]);
-    exit;
-}
-
-if ($routeKey === 'GET /reports/export-unified') {
-    require_once APP_PATH . '/Controllers/ReportController.php';
-    $controller = new App\Controllers\ReportController();
-    $controller->exportUnified();
-    exit;
-}
-
-// Usuarios
-if ($routeKey === 'GET /users') {
-    require_once APP_PATH . '/Controllers/UserController.php';
-    $controller = new App\Controllers\UserController();
-    $controller->index();
-    exit;
-}
-
-if ($routeKey === 'GET /users/create') {
-    require_once APP_PATH . '/Controllers/UserController.php';
-    $controller = new App\Controllers\UserController();
-    $controller->create();
-    exit;
-}
-
-if ($routeKey === 'POST /users') {
-    require_once APP_PATH . '/Controllers/UserController.php';
-    $controller = new App\Controllers\UserController();
-    $controller->store();
-    exit;
-}
-
-// Configuracion
-if ($routeKey === 'GET /settings') {
-    require_once APP_PATH . '/Controllers/SettingController.php';
-    $controller = new App\Controllers\SettingController();
-    $controller->index();
-    exit;
-}
-
-if ($routeKey === 'POST /settings/monthly-hours') {
-    require_once APP_PATH . '/Controllers/SettingController.php';
-    $controller = new App\Controllers\SettingController();
-    $controller->saveMonthlyHours();
-    exit;
-}
-
-if ($routeKey === 'POST /settings/monthly-hours/delete') {
-    require_once APP_PATH . '/Controllers/SettingController.php';
-    $controller = new App\Controllers\SettingController();
-    $controller->deleteMonthlyHours();
-    exit;
-}
-
-if ($routeKey === 'POST /settings/holidays') {
-    require_once APP_PATH . '/Controllers/SettingController.php';
-    $controller = new App\Controllers\SettingController();
-    $controller->saveHoliday();
-    exit;
-}
-
-if ($routeKey === 'POST /settings/holidays/delete') {
-    require_once APP_PATH . '/Controllers/SettingController.php';
-    $controller = new App\Controllers\SettingController();
-    $controller->deleteHoliday();
-    exit;
-}
-
-if ($routeKey === 'POST /settings/params') {
-    require_once APP_PATH . '/Controllers/SettingController.php';
-    $controller = new App\Controllers\SettingController();
-    $controller->saveParams();
-    exit;
-}
-
-// API Tokens
-if ($routeKey === 'POST /settings/api-tokens') {
-    require_once APP_PATH . '/Controllers/SettingController.php';
-    $controller = new App\Controllers\SettingController();
-    $controller->createApiToken();
-    exit;
-}
-
-if ($routeKey === 'POST /settings/api-tokens/revoke') {
-    require_once APP_PATH . '/Controllers/SettingController.php';
-    $controller = new App\Controllers\SettingController();
-    $controller->revokeApiToken();
-    exit;
-}
-
-// Changelog
-if ($routeKey === 'GET /changelog') {
-    require_once APP_PATH . '/Controllers/SettingController.php';
-    $controller = new App\Controllers\SettingController();
-    $controller->changelog();
-    exit;
-}
-
-// Auditoria
-if ($routeKey === 'GET /audit-log') {
-    require_once APP_PATH . '/Controllers/AuditController.php';
-    $controller = new App\Controllers\AuditController();
-    $controller->index();
-    exit;
-}
-
-if ($routeKey === 'GET /audit-log/export') {
-    require_once APP_PATH . '/Controllers/AuditController.php';
-    $controller = new App\Controllers\AuditController();
-    $controller->export();
-    exit;
-}
-
-// Roles
-if ($routeKey === 'GET /roles') {
-    require_once APP_PATH . '/Controllers/RoleController.php';
-    $controller = new App\Controllers\RoleController();
-    $controller->index();
-    exit;
-}
-
-if ($routeKey === 'GET /roles/create') {
-    require_once APP_PATH . '/Controllers/RoleController.php';
-    $controller = new App\Controllers\RoleController();
-    $controller->create();
-    exit;
-}
-
-if ($routeKey === 'POST /roles') {
-    require_once APP_PATH . '/Controllers/RoleController.php';
-    $controller = new App\Controllers\RoleController();
-    $controller->store();
-    exit;
-}
-
-// =====================
-// RUTAS DINAMICAS
-// =====================
-
-// Actividades de Campaña
-if ($method === 'GET' && preg_match('#^/campaigns/(\d+)/activities$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ActivityController.php';
-    $controller = new App\Controllers\ActivityController();
-    $controller->index((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'GET' && preg_match('#^/campaigns/(\d+)/activities/create$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ActivityController.php';
-    $controller = new App\Controllers\ActivityController();
-    $controller->create((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'POST' && preg_match('#^/campaigns/(\d+)/activities$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ActivityController.php';
-    $controller = new App\Controllers\ActivityController();
-    $controller->store((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'GET' && preg_match('#^/activities/(\d+)/edit$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ActivityController.php';
-    $controller = new App\Controllers\ActivityController();
-    $controller->edit((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'POST' && preg_match('#^/activities/(\d+)$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ActivityController.php';
-    $controller = new App\Controllers\ActivityController();
-    $controller->update((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'GET' && preg_match('#^/activities/(\d+)/assignments$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ActivityController.php';
-    $controller = new App\Controllers\ActivityController();
-    $controller->assignments((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'POST' && preg_match('#^/activities/(\d+)/assignments$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ActivityController.php';
-    $controller = new App\Controllers\ActivityController();
-    $controller->storeAssignment((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'GET' && preg_match('#^/activities/assignments/(\d+)/remove$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ActivityController.php';
-    $controller = new App\Controllers\ActivityController();
-    $controller->removeAssignment((int)$matches[1]);
-    exit;
-}
-
-// Asesores compartidos
-if ($method === 'GET' && preg_match('#^/campaigns/(\d+)/shared-advisors$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/SharedAdvisorController.php';
-    $controller = new App\Controllers\SharedAdvisorController();
-    $controller->index((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'GET' && preg_match('#^/campaigns/(\d+)/shared-advisors/create$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/SharedAdvisorController.php';
-    $controller = new App\Controllers\SharedAdvisorController();
-    $controller->create((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'POST' && preg_match('#^/campaigns/(\d+)/shared-advisors$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/SharedAdvisorController.php';
-    $controller = new App\Controllers\SharedAdvisorController();
-    $controller->store((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'POST' && preg_match('#^/shared-advisors/(\d+)/toggle$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/SharedAdvisorController.php';
-    $controller = new App\Controllers\SharedAdvisorController();
-    $controller->toggle((int)$matches[1]);
-    exit;
-}
-
-// Campañas - editar
-if ($method === 'GET' && preg_match('#^/campaigns/(\d+)/edit$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/CampaignController.php';
-    $controller = new App\Controllers\CampaignController();
-    $controller->edit((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'POST' && preg_match('#^/campaigns/(\d+)$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/CampaignController.php';
-    $controller = new App\Controllers\CampaignController();
-    $controller->update((int)$matches[1]);
-    exit;
-}
-
-// Asesores - editar
-if ($method === 'GET' && preg_match('#^/advisors/(\d+)/edit$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/AdvisorController.php';
-    $controller = new App\Controllers\AdvisorController();
-    $controller->edit((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'POST' && preg_match('#^/advisors/(\d+)$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/AdvisorController.php';
-    $controller = new App\Controllers\AdvisorController();
-    $controller->update((int)$matches[1]);
-    exit;
-}
-
-// Usuarios - editar
-if ($method === 'GET' && preg_match('#^/users/(\d+)/edit$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/UserController.php';
-    $controller = new App\Controllers\UserController();
-    $controller->edit((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'POST' && preg_match('#^/users/(\d+)$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/UserController.php';
-    $controller = new App\Controllers\UserController();
-    $controller->update((int)$matches[1]);
-    exit;
-}
-
-// Usuarios - resetear contrasena
-if ($method === 'POST' && preg_match('#^/users/(\d+)/reset-password$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/UserController.php';
-    $controller = new App\Controllers\UserController();
-    $controller->resetPassword((int)$matches[1]);
-    exit;
-}
-
-// Usuarios - toggle status (POST)
-if ($method === 'POST' && preg_match('#^/users/(\d+)/toggle-status$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/UserController.php';
-    $controller = new App\Controllers\UserController();
-    $controller->toggleStatus((int)$matches[1]);
-    exit;
-}
-
-// Horarios - sugerir reemplazos
-if ($routeKey === 'POST /schedules/suggest-replacements') {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->suggestReplacements();
-    exit;
-}
-
-// Horarios - aplicar reemplazo
-if ($routeKey === 'POST /schedules/apply-replacement') {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->applyReplacement();
-    exit;
-}
-
-// Horarios - exportar PDF
-if ($method === 'GET' && preg_match('#^/schedules/(\d+)/export-pdf$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->exportPdf((int)$matches[1]);
-    exit;
-}
-
-// Horarios - ver detalle
-if ($method === 'GET' && preg_match('#^/schedules/(\d+)$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->show((int)$matches[1]);
-    exit;
-}
-
-// Horarios - enviar para aprobacion (POST)
-if ($method === 'POST' && preg_match('#^/schedules/(\d+)/submit$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->submit((int)$matches[1]);
-    exit;
-}
-
-// Horarios - aprobar (POST)
-if ($method === 'POST' && preg_match('#^/schedules/(\d+)/approve$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->approve((int)$matches[1]);
-    exit;
-}
-
-// Horarios - rechazar (POST)
-if ($method === 'POST' && preg_match('#^/schedules/(\d+)/reject$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->reject((int)$matches[1]);
-    exit;
-}
-
-// Horarios - seguimiento diario
-if ($method === 'GET' && preg_match('#^/schedules/(\d+)/tracking$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->dailyTracking((int)$matches[1]);
-    exit;
-}
-
-// Horarios - check-in asesor (API JSON)
-if ($method === 'POST' && preg_match('#^/schedules/(\d+)/checkin$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->toggleCheckin((int)$matches[1]);
-    exit;
-}
-
-// Horarios - guardar asistencia (API JSON)
-if ($method === 'POST' && preg_match('#^/schedules/(\d+)/attendance$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->saveAttendance((int)$matches[1]);
-    exit;
-}
-
-// Horarios - actualizar asignaciones (API JSON)
-if ($method === 'POST' && preg_match('#^/schedules/(\d+)/assignments$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/ScheduleController.php';
-    $controller = new App\Controllers\ScheduleController();
-    $controller->updateAssignments((int)$matches[1]);
-    exit;
-}
-
-// Roles - editar
-if ($method === 'GET' && preg_match('#^/roles/(\d+)/edit$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/RoleController.php';
-    $controller = new App\Controllers\RoleController();
-    $controller->edit((int)$matches[1]);
-    exit;
-}
-
-if ($method === 'POST' && preg_match('#^/roles/(\d+)$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/RoleController.php';
-    $controller = new App\Controllers\RoleController();
-    $controller->update((int)$matches[1]);
-    exit;
-}
-
-// Roles - eliminar (POST para seguridad)
-if ($method === 'POST' && preg_match('#^/roles/(\d+)/delete$#', $uri, $matches)) {
-    require_once APP_PATH . '/Controllers/RoleController.php';
-    $controller = new App\Controllers\RoleController();
-    $controller->delete((int)$matches[1]);
-    exit;
+// =============================================
+// PROTECTED ROUTES — Exact Match
+// =============================================
+
+$exactRoutes = [
+    // Dashboard
+    'GET /dashboard'                    => ['DashboardController', 'index'],
+
+    // Notifications
+    'GET /notifications'                => ['NotificationController', 'index'],
+    'POST /notifications/read-all'      => ['NotificationController', 'markAllRead'],
+
+    // Campaigns
+    'GET /campaigns'                    => ['CampaignController', 'index'],
+    'GET /campaigns/create'             => ['CampaignController', 'create'],
+    'POST /campaigns'                   => ['CampaignController', 'store'],
+
+    // Advisors
+    'GET /advisors'                     => ['AdvisorController', 'index'],
+    'GET /advisors/create'              => ['AdvisorController', 'create'],
+    'GET /advisors/bulk-config'         => ['AdvisorController', 'bulkConfig'],
+    'POST /advisors'                    => ['AdvisorController', 'store'],
+    'POST /advisors/bulk-config'        => ['AdvisorController', 'bulkConfigStore'],
+
+    // Schedules — core
+    'GET /schedules'                    => ['ScheduleController', 'index'],
+    'GET /my-schedule'                  => ['ScheduleController', 'mySchedule'],
+    'GET /schedules/generate'           => ['ScheduleController', 'showGenerate'],
+    'POST /schedules/generate'          => ['ScheduleController', 'generate'],
+    'POST /schedules/regenerate-partial' => ['ScheduleController', 'regeneratePartial'],
+
+    // Schedules — import
+    'GET /schedules/import'             => ['ScheduleImportController', 'showImport'],
+    'POST /schedules/import'            => ['ScheduleImportController', 'import'],
+
+    // Schedules — API (replacements)
+    'POST /schedules/suggest-replacements' => ['ScheduleApiController', 'suggestReplacements'],
+    'POST /schedules/apply-replacement'    => ['ScheduleApiController', 'applyReplacement'],
+
+    // Reports
+    'GET /reports'                      => ['ReportController', 'index'],
+    'GET /reports/export-unified'       => ['ReportController', 'exportUnified'],
+
+    // Users
+    'GET /users'                        => ['UserController', 'index'],
+    'GET /users/create'                 => ['UserController', 'create'],
+    'POST /users'                       => ['UserController', 'store'],
+
+    // Settings
+    'GET /settings'                     => ['SettingController', 'index'],
+    'POST /settings/monthly-hours'      => ['SettingController', 'saveMonthlyHours'],
+    'POST /settings/monthly-hours/delete' => ['SettingController', 'deleteMonthlyHours'],
+    'POST /settings/holidays'           => ['SettingController', 'saveHoliday'],
+    'POST /settings/holidays/delete'    => ['SettingController', 'deleteHoliday'],
+    'POST /settings/params'             => ['SettingController', 'saveParams'],
+    'POST /settings/api-tokens'         => ['SettingController', 'createApiToken'],
+    'POST /settings/api-tokens/revoke'  => ['SettingController', 'revokeApiToken'],
+    'GET /changelog'                    => ['SettingController', 'changelog'],
+
+    // Audit
+    'GET /audit-log'                    => ['AuditController', 'index'],
+    'GET /audit-log/export'             => ['AuditController', 'export'],
+
+    // Roles
+    'GET /roles'                        => ['RoleController', 'index'],
+    'GET /roles/create'                 => ['RoleController', 'create'],
+    'POST /roles'                       => ['RoleController', 'store'],
+];
+
+if (isset($exactRoutes[$routeKey])) {
+    [$ctrl, $action] = $exactRoutes[$routeKey];
+    require_once APP_PATH . "/Controllers/{$ctrl}.php";
+    $c = new ("App\\Controllers\\{$ctrl}")();
+    $c->$action();
+    exit;
+}
+
+// =============================================
+// PROTECTED ROUTES — Regex (dynamic params)
+// =============================================
+
+$regexRoutes = [
+    // Notifications
+    ['POST', '#^/notifications/(\d+)/read$#',              'NotificationController', 'markRead'],
+
+    // Campaigns
+    ['GET',  '#^/campaigns/(\d+)/edit$#',                  'CampaignController', 'edit'],
+    ['POST', '#^/campaigns/(\d+)$#',                       'CampaignController', 'update'],
+
+    // Activities
+    ['GET',  '#^/campaigns/(\d+)/activities$#',            'ActivityController', 'index'],
+    ['GET',  '#^/campaigns/(\d+)/activities/create$#',     'ActivityController', 'create'],
+    ['POST', '#^/campaigns/(\d+)/activities$#',            'ActivityController', 'store'],
+    ['GET',  '#^/activities/(\d+)/edit$#',                 'ActivityController', 'edit'],
+    ['POST', '#^/activities/(\d+)$#',                      'ActivityController', 'update'],
+    ['GET',  '#^/activities/(\d+)/assignments$#',          'ActivityController', 'assignments'],
+    ['POST', '#^/activities/(\d+)/assignments$#',          'ActivityController', 'storeAssignment'],
+    ['POST', '#^/activities/assignments/(\d+)/remove$#',   'ActivityController', 'removeAssignment'],
+
+    // Shared Advisors
+    ['GET',  '#^/campaigns/(\d+)/shared-advisors$#',       'SharedAdvisorController', 'index'],
+    ['GET',  '#^/campaigns/(\d+)/shared-advisors/create$#','SharedAdvisorController', 'create'],
+    ['POST', '#^/campaigns/(\d+)/shared-advisors$#',       'SharedAdvisorController', 'store'],
+    ['POST', '#^/shared-advisors/(\d+)/toggle$#',          'SharedAdvisorController', 'toggle'],
+
+    // Advisors
+    ['GET',  '#^/advisors/(\d+)/edit$#',                   'AdvisorController', 'edit'],
+    ['POST', '#^/advisors/(\d+)$#',                        'AdvisorController', 'update'],
+
+    // Schedules — import
+    ['POST', '#^/schedules/imports/(\d+)/delete$#',        'ScheduleImportController', 'deleteImport'],
+
+    // Schedules — core
+    ['GET',  '#^/schedules/(\d+)/export-pdf$#',            'ScheduleController', 'exportPdf'],
+    ['GET',  '#^/schedules/(\d+)$#',                       'ScheduleController', 'show'],
+    ['POST', '#^/schedules/(\d+)/submit$#',                'ScheduleController', 'submit'],
+    ['POST', '#^/schedules/(\d+)/approve$#',               'ScheduleController', 'approve'],
+    ['POST', '#^/schedules/(\d+)/reject$#',                'ScheduleController', 'reject'],
+
+    // Schedules — tracking
+    ['GET',  '#^/schedules/(\d+)/tracking$#',              'ScheduleTrackingController', 'dailyTracking'],
+    ['POST', '#^/schedules/(\d+)/checkin$#',               'ScheduleTrackingController', 'toggleCheckin'],
+    ['POST', '#^/schedules/(\d+)/attendance$#',            'ScheduleTrackingController', 'saveAttendance'],
+    ['POST', '#^/schedules/(\d+)/assignments$#',           'ScheduleTrackingController', 'updateAssignments'],
+
+    // Reports
+    ['GET',  '#^/reports/hours/(\d+)$#',                   'ReportController', 'hours'],
+    ['GET',  '#^/reports/hours/(\d+)/export$#',            'ReportController', 'exportHours'],
+
+    // Users
+    ['GET',  '#^/users/(\d+)/edit$#',                      'UserController', 'edit'],
+    ['POST', '#^/users/(\d+)$#',                           'UserController', 'update'],
+    ['POST', '#^/users/(\d+)/reset-password$#',            'UserController', 'resetPassword'],
+    ['POST', '#^/users/(\d+)/toggle-status$#',             'UserController', 'toggleStatus'],
+
+    // Roles
+    ['GET',  '#^/roles/(\d+)/edit$#',                      'RoleController', 'edit'],
+    ['POST', '#^/roles/(\d+)$#',                           'RoleController', 'update'],
+    ['POST', '#^/roles/(\d+)/delete$#',                    'RoleController', 'delete'],
+];
+
+foreach ($regexRoutes as [$routeMethod, $pattern, $ctrl, $action]) {
+    if ($method === $routeMethod && preg_match($pattern, $uri, $matches)) {
+        require_once APP_PATH . "/Controllers/{$ctrl}.php";
+        $c = new ("App\\Controllers\\{$ctrl}")();
+        $c->$action((int)$matches[1]);
+        exit;
+    }
 }
 
 // 404

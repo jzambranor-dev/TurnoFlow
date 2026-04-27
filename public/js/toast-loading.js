@@ -22,7 +22,19 @@ function showToast(message, type, duration) {
     };
     var toast = document.createElement('div');
     toast.className = 'tf-toast tf-toast-' + type;
-    toast.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor">' + (icons[type] || icons.info) + '</svg><span>' + message + '</span><button class="tf-toast-close" onclick="this.parentElement.remove()">&times;</button>';
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'currentColor');
+    svg.innerHTML = icons[type] || icons.info;
+    var span = document.createElement('span');
+    span.textContent = message;
+    var btn = document.createElement('button');
+    btn.className = 'tf-toast-close';
+    btn.textContent = '\u00D7';
+    btn.onclick = function() { this.parentElement.remove(); };
+    toast.appendChild(svg);
+    toast.appendChild(span);
+    toast.appendChild(btn);
     container.appendChild(toast);
     requestAnimationFrame(function() { toast.classList.add('tf-toast-show'); });
     setTimeout(function() {
@@ -42,7 +54,17 @@ function showLoading(msg) {
         overlay.className = 'tf-loading-overlay';
         document.body.appendChild(overlay);
     }
-    overlay.innerHTML = '<div class="tf-loading-box"><div class="tf-loading-spinner"></div><div class="tf-loading-text">' + msg + '</div></div>';
+    overlay.textContent = '';
+    var box = document.createElement('div');
+    box.className = 'tf-loading-box';
+    var spinner = document.createElement('div');
+    spinner.className = 'tf-loading-spinner';
+    var text = document.createElement('div');
+    text.className = 'tf-loading-text';
+    text.textContent = msg;
+    box.appendChild(spinner);
+    box.appendChild(text);
+    overlay.appendChild(box);
     overlay.style.display = 'flex';
 }
 

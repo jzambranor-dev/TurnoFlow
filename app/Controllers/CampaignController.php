@@ -85,6 +85,12 @@ class CampaignController
         $hora_fin_operacion = (int)($_POST['hora_fin_operacion'] ?? 23);
         $max_horas_dia = (int)($_POST['max_horas_dia'] ?? 10);
 
+        if ($nombre === '') {
+            $_SESSION['flash_error'] = 'El nombre de la campana es requerido';
+            header('Location: ' . BASE_URL . '/campaigns/create');
+            exit;
+        }
+
         $pdo = Database::getConnection();
 
         $stmt = $pdo->prepare("

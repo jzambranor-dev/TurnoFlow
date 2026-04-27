@@ -238,17 +238,26 @@ ob_start();
                                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
                                 </a>
                                 <?php if ($schedule['status'] === 'borrador'): ?>
-                                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/submit" class="action-btn action-send" title="Enviar para Aprobacion">
-                                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-                                </a>
+                                <form method="POST" action="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/submit" style="display:inline;">
+                                    <?= \App\Services\CsrfService::field() ?>
+                                    <button type="submit" class="action-btn action-send" title="Enviar para Aprobacion">
+                                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                                    </button>
+                                </form>
                                 <?php endif; ?>
                                 <?php if (in_array($_SESSION['user']['rol'] ?? '', ['coordinador', 'admin', 'gerente'], true) && $schedule['status'] === 'enviado'): ?>
-                                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/approve" class="action-btn action-approve" title="Aprobar">
-                                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-                                </a>
-                                <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/reject" class="action-btn action-reject" title="Rechazar">
-                                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-                                </a>
+                                <form method="POST" action="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/approve" style="display:inline;">
+                                    <?= \App\Services\CsrfService::field() ?>
+                                    <button type="submit" class="action-btn action-approve" title="Aprobar">
+                                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                                    </button>
+                                </form>
+                                <form method="POST" action="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/reject" style="display:inline;">
+                                    <?= \App\Services\CsrfService::field() ?>
+                                    <button type="submit" class="action-btn action-reject" title="Rechazar">
+                                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                                    </button>
+                                </form>
                                 <?php endif; ?>
                             </div>
                         </td>
