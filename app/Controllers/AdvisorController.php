@@ -9,12 +9,15 @@ use PDO;
 use PDOException;
 use Throwable;
 use App\Services\AuthService;
+use App\Traits\FlashMessageTrait;
 
 require_once APP_PATH . '/Services/AuthService.php';
 require_once APP_PATH . '/Services/AuditService.php';
+require_once APP_PATH . '/Traits/FlashMessageTrait.php';
 
 class AdvisorController
 {
+    use FlashMessageTrait;
     public function index(): void
     {
         AuthService::requirePermission('advisors.view');
@@ -759,16 +762,6 @@ class AdvisorController
         }
 
         return 'No se pudo crear el asesor: ' . $e->getMessage();
-    }
-
-    private function setFlash(string $type, string $message): void
-    {
-        if ($type === 'success') {
-            $_SESSION['flash_success'] = $message;
-            return;
-        }
-
-        $_SESSION['flash_error'] = $message;
     }
 
     private function canAccessAdvisor(\PDO $pdo, int $advisorId, array $user): bool

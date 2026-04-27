@@ -231,7 +231,7 @@ ob_start();
                         <td><span class="badge badge-warning">Pendiente</span></td>
                         <td class="text-right">
                             <a href="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>" class="action-link">Ver</a>
-                            <form method="POST" action="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/approve" style="display:inline;">
+                            <form method="POST" action="<?= BASE_URL ?>/schedules/<?= $schedule['id'] ?>/approve" style="display:inline;" onsubmit="return confirm('¿Confirmar aprobación de este horario?')">
                                 <?= \App\Services\CsrfService::field() ?>
                                 <button type="submit" class="action-link success">Aprobar</button>
                             </form>
@@ -386,9 +386,19 @@ ob_start();
 
 <?php
 $horasTrabajadas = $stats['hours_this_month'] ?? 0;
-$horasMeta = 177;
+$horasMeta = $horasMeta ?? 177;
 $porcentaje = min(100, round(($horasTrabajadas / $horasMeta) * 100));
 ?>
+
+<?php if (!($advisorLinked ?? true)): ?>
+<div class="alert alert-warning d-flex align-items-center gap-3 mb-4">
+    <i class="ki-outline ki-information-3 fs-2x text-warning"></i>
+    <div>
+        <strong>Cuenta no vinculada</strong>
+        <p class="mb-0 text-muted">No pudimos vincular tu cuenta con un asesor registrado. Contacta a tu supervisor para verificar tus datos.</p>
+    </div>
+</div>
+<?php endif; ?>
 
 <div class="dashboard-header">
     <div>

@@ -268,16 +268,6 @@ class DashboardController
                 ");
                 $stmt->execute([':full_name' => $firstName . ' ' . $lastName]);
                 $advisorId = $stmt->fetchColumn() ?: null;
-
-                if (!$advisorId) {
-                    $stmt = $pdo->prepare("
-                        SELECT id FROM advisors
-                        WHERE LOWER(nombres) LIKE LOWER(:first) AND LOWER(apellidos) LIKE LOWER(:last)
-                        LIMIT 1
-                    ");
-                    $stmt->execute([':first' => '%' . $firstName . '%', ':last' => '%' . $lastName . '%']);
-                    $advisorId = $stmt->fetchColumn() ?: null;
-                }
             }
 
             if ($advisorId) {
@@ -344,6 +334,13 @@ class DashboardController
                 $stats['days_worked'] = 0;
                 $upcomingShifts = [];
             }
+
+            $advisorLinked = (bool)$advisorId;
+
+            // Monthly hours target from config (fallback 177)
+            $stmtMeta = $pdo->prepare("SELECT horas_requeridas FROM monthly_hours_config WHERE mes = :mes AND anio = :anio LIMIT 1");
+            $stmtMeta->execute([':mes' => (int)date('n'), ':anio' => (int)date('Y')]);
+            $horasMeta = (int)($stmtMeta->fetchColumn() ?: 177);
         }
 
         $pageTitle = 'Dashboard';

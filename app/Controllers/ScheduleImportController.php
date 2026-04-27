@@ -8,12 +8,15 @@ use Database;
 use PDO;
 use Throwable;
 use App\Services\AuthService;
+use App\Traits\FlashMessageTrait;
 
 require_once APP_PATH . '/Services/AuthService.php';
 require_once APP_PATH . '/Services/ImportService.php';
+require_once APP_PATH . '/Traits/FlashMessageTrait.php';
 
 class ScheduleImportController
 {
+    use FlashMessageTrait;
     public function showImport(): void
     {
         AuthService::requirePermission('schedules.import');
@@ -293,13 +296,4 @@ class ScheduleImportController
         return $row ?: null;
     }
 
-    private function setFlash(string $type, string $message): void
-    {
-        if ($type === 'success') {
-            $_SESSION['flash_success'] = $message;
-            return;
-        }
-
-        $_SESSION['flash_error'] = $message;
-    }
 }

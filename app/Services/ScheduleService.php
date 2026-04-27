@@ -138,7 +138,7 @@ class ScheduleService
         if (is_numeric($cellValue)) {
             $floatVal = (float)$cellValue;
             if ($floatVal >= 0 && $floatVal < 1) {
-                return (int)round($floatVal * 24);
+                return min(23, (int)floor($floatVal * 24));
             }
             $intVal = (int)$floatVal;
             if ($intVal >= 0 && $intVal <= 23 && $floatVal == $intVal) {
@@ -165,5 +165,77 @@ class ScheduleService
         }
 
         return max(0, (int)round((float)$normalized));
+    }
+
+    /**
+     * Resolve an advisor record from a user session array.
+     *
+     * Strategy 1: Extract cedula from auto-generated email pattern asesor{cedula}@turnoflow.local
+     * Strategy 2: Exact full name match (user <-> advisor)
+     *
+     * Does NOT use LIKE — partial matching can resolve the wrong advisor.
+     */
+    public static function resolveAdvisorByUser(PDO $pdo, array $user): ?array
+    {
+        // Strategy 1: Extract cedula from email pattern asesor{cedula}[@suffix]@turnoflow.local
+        $email = (string)($user['email'] ?? '');
+        if (preg_match('/^asesor([0-9a-zA-Z]+)@turnoflow\.local$/i', $email, $matches)) {
+            $localPart = $matches[1];
+            // Try exact match first, then strip trailing digits for collision-suffix
+            $candidates = [$localPart];
+            if (preg_match('/^(.+\D)(\d+)$/', $localPart, $m)) {
+                $candidates[] = $m[1];
+            }
+            foreach ($candidates as $candidate) {
+                $stmt = $pdo->prepare("
+                    SELECT a.* FROM advisors a
+                    WHERE LOWER(a.cedula) = LOWER(:cedula)
+                    LIMIT 1
+                ");
+                $stmt->execute([':cedula' => $candidate]);
+                $advisor = $stmt->fetch();
+                if ($advisor) {
+                    return $advisor;
+                }
+            }
+        }
+
+        // Strategy 2: Exact full name match (user <-> advisor)
+        $stmt = $pdo->prepare("
+            SELECT a.* FROM advisors a, users u
+            WHERE u.id = :user_id
+              AND LOWER(a.nombres || ' ' || a.apellidos) = LOWER(u.nombre || ' ' || u.apellido)
+            LIMIT 1
+        ");
+        $stmt->execute([':user_id' => (int)($user['id'] ?? 0)]);
+        $advisor = $stmt->fetch();
+
+        if ($advisor) {
+            return $advisor;
+        }
+
+        $stmt = $pdo->prepare("
+            SELECT a.* FROM advisors a
+            WHERE LOWER(a.nombres || ' ' || a.apellidos) = LOWER(:nombre)
+               OR LOWER(a.apellidos || ' ' || a.nombres) = LOWER(:nombre)
+            LIMIT 1
+        ");
+        $stmt->execute([
+            ':nombre' => trim((string)($user['nombre'] ?? '') . ' ' . (string)($user['apellido'] ?? '')),
+        ]);
+
+        $row = $stmt->fetch();
+        if ($row) {
+            return $row;
+        }
+
+        $firstName = trim((string)($user['nombre'] ?? ''));
+        $lastName = trim((string)($user['apellido'] ?? ''));
+        if ($firstName === '' || $lastName === '') {
+            return null;
+        }
+
+        // No usar LIKE — match parcial puede resolver al advisor equivocado
+        return null;
     }
 }

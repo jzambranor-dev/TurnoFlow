@@ -8,11 +8,12 @@ use Database;
 use PDO;
 use Throwable;
 use App\Services\AuthService;
+use App\Services\ScheduleService;
 
 require_once APP_PATH . '/Services/AuthService.php';
+require_once APP_PATH . '/Services/ScheduleService.php';
 require_once APP_PATH . '/Services/AttendanceService.php';
 require_once APP_PATH . '/Services/AuditService.php';
-require_once APP_PATH . '/Services/ScheduleService.php';
 require_once APP_PATH . '/Services/NotificationService.php';
 
 class ScheduleTrackingController
@@ -29,7 +30,8 @@ class ScheduleTrackingController
         $pdo = Database::getConnection();
 
         $stmt = $pdo->prepare("
-            SELECT s.*, c.nombre as campaign_nombre, c.supervisor_id, c.id as campaign_id
+            SELECT s.*, c.nombre as campaign_nombre, c.supervisor_id, c.id as campaign_id,
+                   c.duracion_break_min
             FROM schedules s
             JOIN campaigns c ON c.id = s.campaign_id
             WHERE s.id = :id
@@ -88,6 +90,7 @@ class ScheduleTrackingController
         $dates = [];
         $advisorsMap = [];
         $dailyData = []; // [fecha][advisor_id] => { hours, attendance }
+        $breakFraction = ($schedule['duracion_break_min'] ?? 30) / 60;
 
         foreach ($assignments as $a) {
             $fecha = (string)$a['fecha'];
@@ -111,7 +114,7 @@ class ScheduleTrackingController
                 ];
             }
             if ($a['tipo'] === 'break') {
-                $dailyData[$fecha][$advId]['break_hours'] += 0.5;
+                $dailyData[$fecha][$advId]['break_hours'] += $breakFraction;
             } else {
                 $dailyData[$fecha][$advId]['hours']++;
             }
@@ -160,7 +163,7 @@ class ScheduleTrackingController
         $user = $_SESSION['user'];
         if (($user['rol'] ?? '') === 'asesor') {
             $pdo = \Database::getConnection();
-            $ownAdvisor = $this->resolveAdvisorByUser($pdo, $user);
+            $ownAdvisor = ScheduleService::resolveAdvisorByUser($pdo, $user);
             if (!$ownAdvisor || (int)$ownAdvisor['id'] !== $advisorId) {
                 echo json_encode(['success' => false, 'error' => 'No autorizado']);
                 exit;
@@ -406,49 +409,4 @@ class ScheduleTrackingController
         exit;
     }
 
-    private function resolveAdvisorByUser(PDO $pdo, array $user): ?array
-    {
-        $stmt = $pdo->prepare("
-            SELECT a.* FROM advisors a
-            WHERE LOWER(a.cedula) = LOWER(:email) OR EXISTS (
-                SELECT 1 FROM users u WHERE u.id = :user_id AND
-                (LOWER(u.email) LIKE LOWER(CONCAT('%', a.cedula, '%')) OR
-                 LOWER(a.nombres || ' ' || a.apellidos) = LOWER(u.nombre || ' ' || u.apellido))
-            )
-            LIMIT 1
-        ");
-        $stmt->execute([
-            ':email' => (string)($user['email'] ?? ''),
-            ':user_id' => (int)($user['id'] ?? 0),
-        ]);
-        $advisor = $stmt->fetch();
-
-        if ($advisor) {
-            return $advisor;
-        }
-
-        $stmt = $pdo->prepare("
-            SELECT a.* FROM advisors a
-            WHERE LOWER(a.nombres || ' ' || a.apellidos) = LOWER(:nombre)
-               OR LOWER(a.apellidos || ' ' || a.nombres) = LOWER(:nombre)
-            LIMIT 1
-        ");
-        $stmt->execute([
-            ':nombre' => trim((string)($user['nombre'] ?? '') . ' ' . (string)($user['apellido'] ?? '')),
-        ]);
-
-        $row = $stmt->fetch();
-        if ($row) {
-            return $row;
-        }
-
-        $firstName = trim((string)($user['nombre'] ?? ''));
-        $lastName = trim((string)($user['apellido'] ?? ''));
-        if ($firstName === '' || $lastName === '') {
-            return null;
-        }
-
-        // No usar LIKE — match parcial puede resolver al advisor equivocado
-        return null;
-    }
 }

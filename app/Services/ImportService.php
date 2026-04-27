@@ -270,7 +270,7 @@ class ImportService
         if (is_numeric($cellValue)) {
             $floatVal = (float)$cellValue;
             if ($floatVal >= 0 && $floatVal < 1) {
-                return (int)round($floatVal * 24);
+                return min(23, (int)floor($floatVal * 24));
             }
             $intVal = (int)$floatVal;
             if ($intVal >= 0 && $intVal <= 23 && $floatVal == $intVal) {
