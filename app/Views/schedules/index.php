@@ -19,11 +19,11 @@ ob_start();
                 <p class="header-subtitle">Gestiona los horarios de las campañas</p>
             </div>
             <div class="header-actions">
-                <a href="<?= BASE_URL ?>/schedules/import" class="btn-action btn-secondary">
+                <a href="<?= BASE_URL ?>/schedules/import" class="btn btn-secondary">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15.01l1.41 1.41L11 14.84V19h2v-4.16l1.59 1.59L16 15.01 12.01 11 8 15.01z"/></svg>
                     Importar
                 </a>
-                <a href="<?= BASE_URL ?>/schedules/generate" class="btn-action btn-primary">
+                <a href="<?= BASE_URL ?>/schedules/generate" class="btn btn-primary">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2zm-8 4H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/></svg>
                     Generar Horario
                 </a>
@@ -32,18 +32,18 @@ ob_start();
     </div>
 
     <?php if (!empty($flashSuccess)): ?>
-    <div class="flash-banner flash-success flash-dismissible">
-        <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;flex-shrink:0;"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+    <div class="alert alert-success alert-dismissible">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
         <span><?= htmlspecialchars($flashSuccess) ?></span>
-        <button type="button" class="flash-close" onclick="this.parentElement.style.display='none'">&times;</button>
+        <button type="button" class="alert-close" onclick="this.parentElement.style.display='none'">&times;</button>
     </div>
     <?php endif; ?>
 
     <?php if (!empty($flashError)): ?>
-    <div class="flash-banner flash-error flash-dismissible">
-        <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;flex-shrink:0;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+    <div class="alert alert-danger alert-dismissible">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
         <span><?= htmlspecialchars($flashError) ?></span>
-        <button type="button" class="flash-close" onclick="this.parentElement.style.display='none'">&times;</button>
+        <button type="button" class="alert-close" onclick="this.parentElement.style.display='none'">&times;</button>
     </div>
     <?php endif; ?>
 
@@ -113,11 +113,11 @@ ob_start();
             <h3 class="empty-title">No hay horarios generados</h3>
             <p class="empty-text">Importa un dimensionamiento y genera el primer horario para tu campaña.</p>
             <div style="display:flex;gap:10px;justify-content:center;">
-                <a href="<?= BASE_URL ?>/schedules/import" class="btn-action btn-secondary">
+                <a href="<?= BASE_URL ?>/schedules/import" class="btn btn-secondary">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15.01l1.41 1.41L11 14.84V19h2v-4.16l1.59 1.59L16 15.01 12.01 11 8 15.01z"/></svg>
                     Importar Dimensionamiento
                 </a>
-                <a href="<?= BASE_URL ?>/schedules/generate" class="btn-action btn-primary">
+                <a href="<?= BASE_URL ?>/schedules/generate" class="btn btn-primary">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
                     Generar Horario
                 </a>
@@ -297,34 +297,6 @@ $extraStyles[] = <<<'STYLE'
     .schedules-page {
         max-width: 1400px;
         margin: 0 auto;
-    }
-
-    .flash-banner {
-        border-radius: 10px;
-        padding: 12px 16px;
-        margin-bottom: 16px;
-        font-size: 0.875rem;
-        font-weight: 600;
-        border: 1px solid transparent;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .flash-dismissible { position: relative; padding-right: 40px; }
-    .flash-close { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; font-size: 1.2rem; cursor: pointer; color: inherit; opacity: 0.6; line-height: 1; padding: 4px; }
-    .flash-close:hover { opacity: 1; }
-
-    .flash-success {
-        background: #ecfdf5;
-        color: #047857;
-        border-color: #a7f3d0;
-    }
-
-    .flash-error {
-        background: #fef2f2;
-        color: #b91c1c;
-        border-color: #fecaca;
     }
 
     /* Header */
@@ -597,7 +569,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Auto-dismiss flash messages
-    document.querySelectorAll('.flash-dismissible').forEach(function(el) {
+    document.querySelectorAll('.alert-dismissible').forEach(function(el) {
         setTimeout(function() {
             el.style.transition = 'opacity 0.4s, transform 0.4s';
             el.style.opacity = '0';

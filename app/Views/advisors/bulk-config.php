@@ -30,11 +30,19 @@ ob_start();
     </div>
 
     <?php if (!empty($flashSuccess)): ?>
-    <div class="alert alert-success"><?= htmlspecialchars($flashSuccess) ?></div>
+    <div class="alert alert-success alert-dismissible">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+        <span><?= htmlspecialchars($flashSuccess) ?></span>
+        <button type="button" class="alert-close" onclick="this.parentElement.style.display='none'">&times;</button>
+    </div>
     <?php endif; ?>
 
     <?php if (!empty($flashError)): ?>
-    <div class="alert alert-danger"><?= htmlspecialchars($flashError) ?></div>
+    <div class="alert alert-danger alert-dismissible">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+        <span><?= htmlspecialchars($flashError) ?></span>
+        <button type="button" class="alert-close" onclick="this.parentElement.style.display='none'">&times;</button>
+    </div>
     <?php endif; ?>
 
     <!-- Paso 1: Selecciónar Campaña -->
@@ -52,7 +60,7 @@ ob_start();
                 </option>
                 <?php endforeach; ?>
             </select>
-            <button type="submit" class="btn btn-primary" style="padding: 8px 20px;">Cargar Asesores</button>
+            <button type="submit" class="btn btn-primary">Cargar Asesores</button>
         </form>
     </div>
 
@@ -313,8 +321,8 @@ ob_start();
 
         <!-- Submit -->
         <div style="display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 40px;">
-            <a href="<?= BASE_URL ?>/advisors" class="btn btn-secondary" style="padding: 10px 24px;">Cancelar</a>
-            <button type="submit" class="btn btn-primary" style="padding: 10px 24px;" id="btnSubmit" onclick="return confirmBulk();">
+            <a href="<?= BASE_URL ?>/advisors" class="btn btn-secondary">Cancelar</a>
+            <button type="submit" class="btn btn-primary" id="btnSubmit" onclick="return confirmBulk();">
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width: 18px; height: 18px;"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
                 Aplicar Configuración Masiva
             </button>

@@ -14,31 +14,31 @@ ob_start();
 
 <div class="roles-page">
     <?php if (!empty($flashSuccess)): ?>
-    <div class="alert alert-success">
+    <div class="alert alert-success alert-dismissible">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-        <?= htmlspecialchars($flashSuccess) ?>
+        <span><?= htmlspecialchars($flashSuccess) ?></span>
+        <button type="button" class="alert-close" onclick="this.parentElement.style.display='none'">&times;</button>
     </div>
     <?php endif; ?>
 
     <?php if (!empty($flashError)): ?>
-    <div class="alert alert-danger">
+    <div class="alert alert-danger alert-dismissible">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-        <?= htmlspecialchars($flashError) ?>
+        <span><?= htmlspecialchars($flashError) ?></span>
+        <button type="button" class="alert-close" onclick="this.parentElement.style.display='none'">&times;</button>
     </div>
     <?php endif; ?>
 
     <div class="page-header">
-        <div class="header-content">
-            <div class="header-info">
-                <h1 class="header-title">Roles y Permisos</h1>
-                <p class="header-subtitle">Gestióna los roles y sus permisos en el sistema</p>
-            </div>
-            <div class="header-actions">
-                <a href="<?= BASE_URL ?>/roles/create" class="btn-action btn-primary">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-                    Nuevo Rol
-                </a>
-            </div>
+        <div>
+            <h1 class="page-header-title">Roles y Permisos</h1>
+            <p class="page-header-subtitle">Gestióna los roles y sus permisos en el sistema</p>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <a href="<?= BASE_URL ?>/roles/create" class="btn btn-primary">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                Nuevo Rol
+            </a>
         </div>
     </div>
 
@@ -192,7 +192,7 @@ $extraStyles[] = <<<'STYLE'
     [data-theme="dark"] .btn-delete:hover { background: rgba(220, 38, 38, 0.25); }
 
     @media (max-width: 768px) {
-        .header-content { flex-direction: column; align-items: stretch; }
+        .page-header { flex-direction: column; align-items: stretch; }
         .roles-grid { grid-template-columns: 1fr; }
     }
 </style>

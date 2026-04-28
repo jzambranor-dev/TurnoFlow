@@ -89,8 +89,8 @@ ob_start();
                 </div>
 
                 <div class="form-actions">
-                    <a href="<?= BASE_URL ?>/users" class="btn-cancel">Cancelar</a>
-                    <button type="submit" class="btn-submit">
+                    <a href="<?= BASE_URL ?>/users" class="btn btn-secondary">Cancelar</a>
+                    <button type="submit" class="btn btn-primary">
                         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
                         Guardar Cambios
                     </button>
@@ -117,7 +117,7 @@ ob_start();
                 </div>
 
                 <div class="form-actions">
-                    <button type="submit" class="btn-submit btn-warning">
+                    <button type="submit" class="btn btn-warning">
                         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
                         Cambiar Contrasena
                     </button>

@@ -102,8 +102,8 @@ ob_start();
         </div>
 
         <div class="form-actions">
-            <a href="<?= BASE_URL ?>/roles" class="btn-cancel">Cancelar</a>
-            <button type="submit" class="btn-submit">
+            <a href="<?= BASE_URL ?>/roles" class="btn btn-secondary">Cancelar</a>
+            <button type="submit" class="btn btn-primary">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
                 Crear Rol
             </button>
