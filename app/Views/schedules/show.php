@@ -164,7 +164,10 @@ foreach ($assignments as $assignment) {
 
     $tipo = (string)($assignment['tipo'] ?? 'normal');
     $assignmentTypeByDateAdvisorHour[$date][$advisorId][$hour] = $tipo;
-    $coverageByDateHour[$date][$hour] = ($coverageByDateHour[$date][$hour] ?? 0) + 1;
+    // Breaks no cuentan como cobertura (no atienden llamadas)
+    if ($tipo !== 'break') {
+        $coverageByDateHour[$date][$hour] = ($coverageByDateHour[$date][$hour] ?? 0) + 1;
+    }
     // Breaks cuentan como 0.5h, el resto como 1h
     $advisorMonthHours[$advisorId] = ($advisorMonthHours[$advisorId] ?? 0) + ($tipo === 'break' ? 0.5 : 1);
 }
@@ -220,7 +223,7 @@ foreach ($hours as $hour) {
 
 $totalFreeSlots = array_sum($advisorFreeDays);
 $totalAdvisors = count($advisorIds);
-$totalAssignments = count($assignments);
+$totalAssignments = count(array_filter($assignments, fn($a) => ($a['tipo'] ?? 'normal') !== 'break'));
 
 // --- Calculo de cobertura global del dimensionamiento ---
 $totalRequiredAll = 0;
