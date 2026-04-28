@@ -1419,6 +1419,103 @@ class ScheduleBuilder
                 }
             }
         }
+
+        // Pasada 6: Usar asesores compartidos para cubrir déficit restante
+        if (!empty($this->sharedAdvisorIds)) {
+            $this->repararDeficitConCompartidos($fechas);
+        }
+    }
+
+    /**
+     * Usa asesores compartidos para cubrir déficit que los propios no pudieron cubrir.
+     */
+    private function repararDeficitConCompartidos(array $fechas): void
+    {
+        // Cargar datos de los asesores compartidos
+        $sharedAdvisors = [];
+        foreach ($this->sharedAdvisorIds as $advId => $_) {
+            $stmt = $this->pdo->prepare("
+                SELECT a.*, ac.tiene_vpn, ac.permite_extras, ac.max_horas_dia,
+                       ac.modalidad_trabajo, ac.permite_horario_partido,
+                       sa.max_horas_dia as shared_max_horas
+                FROM advisors a
+                LEFT JOIN advisor_constraints ac ON ac.advisor_id = a.id
+                JOIN shared_advisors sa ON sa.advisor_id = a.id AND sa.target_campaign_id = :target
+                WHERE a.id = :id AND a.estado = 'activo' AND sa.estado = 'activo'
+            ");
+            $stmt->execute([':id' => $advId, ':target' => $this->campaignId]);
+            $adv = $stmt->fetch();
+            if ($adv) {
+                // Usar el menor entre max_horas_dia del asesor y max_horas del shared config
+                $adv['max_horas_dia'] = min(
+                    (int)($adv['max_horas_dia'] ?? 10),
+                    (int)($adv['shared_max_horas'] ?? 7)
+                );
+                $adv['tiene_vpn'] = $this->toBool($adv['tiene_vpn'] ?? false);
+                $sharedAdvisors[$advId] = $adv;
+            }
+        }
+
+        if (empty($sharedAdvisors)) return;
+
+        foreach ($fechas as $fecha) {
+            $reqDia = $this->requirements[$fecha] ?? [];
+            krsort($reqDia);
+
+            foreach ($reqDia as $hora => $requeridos) {
+                $asignados = count($this->assignments[$fecha][$hora] ?? []);
+                $faltantes = $requeridos - $asignados;
+
+                for ($i = 0; $i < $faltantes; $i++) {
+                    $mejor = null;
+                    $mejorCap = PHP_INT_MIN;
+
+                    foreach ($sharedAdvisors as $advId => $adv) {
+                        if (isset($this->assignments[$fecha][$hora][$advId])) continue;
+                        if (isset($this->advisorSchedule[$advId][$fecha][$hora])) continue;
+
+                        // Horas ya asignadas hoy en ESTA campaña
+                        $horasHoyLocal = 0;
+                        foreach (($this->assignments[$fecha] ?? []) as $h => $advs) {
+                            if (isset($advs[$advId])) $horasHoyLocal++;
+                        }
+
+                        if ($horasHoyLocal >= $adv['max_horas_dia']) continue;
+
+                        // Verificar ventana de contrato
+                        $horaInicio = (int)($adv['hora_inicio_contrato'] ?? 0);
+                        $horaFin = (int)($adv['hora_fin_contrato'] ?? 23);
+                        if ($hora < $horaInicio || $hora > $horaFin) continue;
+
+                        // VPN para nocturno
+                        if ($this->esHoraNocturna($hora) && !$adv['tiene_vpn']) continue;
+
+                        // Preferir asesor con menos horas asignadas (equidad)
+                        $cap = ($adv['max_horas_dia'] - $horasHoyLocal) * 10;
+
+                        // Preferir horas adyacentes a las ya asignadas
+                        $horasExist = [];
+                        foreach (($this->assignments[$fecha] ?? []) as $h => $advs) {
+                            if (isset($advs[$advId])) $horasExist[] = $h;
+                        }
+                        if (!empty($horasExist)) {
+                            if (in_array($hora - 1, $horasExist) || in_array($hora + 1, $horasExist)) {
+                                $cap += 150;
+                            }
+                        }
+
+                        if ($cap > $mejorCap) {
+                            $mejorCap = $cap;
+                            $mejor = $advId;
+                        }
+                    }
+
+                    if ($mejor !== null) {
+                        $this->registrarAsignacion($fecha, $mejor, $hora);
+                    }
+                }
+            }
+        }
     }
 
     // ==========================================================
