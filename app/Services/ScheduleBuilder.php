@@ -58,7 +58,7 @@ class ScheduleBuilder
 
     // Configuración de jornada
     private int $jornadaObjetivo = 8;  // Horas ideales por día trabajado
-    private int $jornadaMinima = 6;    // Mínimo aceptable
+    private int $jornadaMinima = 4;    // Mínimo aceptable (reducido de 6 para jornadas flexibles)
     private int $veladaDescansoMinimo = 12; // Horas mínimas de descanso tras madrugada (06→18)
 
     public function __construct(PDO $pdo)
@@ -735,10 +735,10 @@ class ScheduleBuilder
     {
         if (!$this->tieneVelada || empty($this->veladaEligible)) return;
 
-        // Rotación equitativa: distribuir velada proporcionalmente
-        // Con 6 asesores en 31 días → ~5 días cada uno
+        // Rotación equitativa: rotar cada 2-3 días para distribuir mejor
+        // En vez de bloques largos (5 días seguidos), intercalar más frecuentemente
         $numEligible = count($this->veladaEligible);
-        $diasPorTurno = max(1, (int)round(count($fechas) / $numEligible));
+        $diasPorTurno = max(1, min(3, (int)round(count($fechas) / $numEligible)));
 
         // Mapear cada fecha a su asesor de velada
         $this->veladaMap = [];
@@ -865,6 +865,13 @@ class ScheduleBuilder
                         $bloque = $this->buscarBloqueNocturno($fecha, $advId, $adv, $deficit, $capacidad);
                     } else {
                         $bloque = $this->buscarMejorBloqueContinuo($fecha, $advId, $adv, $deficit, $capacidad);
+                        // Si el bloque continuo no cubre suficiente, intentar turno partido
+                        if (count($bloque) < $this->jornadaMinima && $capacidad >= 6) {
+                            $bloquePartido = $this->buscarTurnoPartido($fecha, $advId, $adv, $deficit, $capacidad);
+                            if (count($bloquePartido) > count($bloque)) {
+                                $bloque = $bloquePartido;
+                            }
+                        }
                     }
                 }
 
@@ -999,6 +1006,61 @@ class ScheduleBuilder
         }
 
         return $mejorBloque;
+    }
+
+    /**
+     * Busca un turno partido: 2 bloques separados por un gap (ej: 08-13 + 17-21).
+     * Solo se usa cuando no hay un bloque continuo suficiente.
+     * Busca los 2 mejores bloques de déficit separados.
+     */
+    private function buscarTurnoPartido(string $fecha, int $advId, array $adv, array $deficit, int $capacidad): array
+    {
+        $hMin = $adv['hora_inicio_contrato'];
+        $hMax = $adv['hora_fin_contrato'];
+
+        // Encontrar todos los bloques de déficit disponibles
+        $bloques = [];
+        $bloqueActual = [];
+        for ($h = $hMin; $h <= $hMax; $h++) {
+            if (!$this->puedeTrabajarHora($adv, $h)) { if (!empty($bloqueActual)) { $bloques[] = $bloqueActual; $bloqueActual = []; } continue; }
+            if ($this->esHoraNocturna($h) && !$adv['tiene_vpn']) { if (!empty($bloqueActual)) { $bloques[] = $bloqueActual; $bloqueActual = []; } continue; }
+            if (isset($this->assignments[$fecha][$h][$advId])) { if (!empty($bloqueActual)) { $bloques[] = $bloqueActual; $bloqueActual = []; } continue; }
+            if (isset($this->advisorSchedule[$advId][$fecha][$h])) { if (!empty($bloqueActual)) { $bloques[] = $bloqueActual; $bloqueActual = []; } continue; }
+
+            if (isset($deficit[$h]) && $deficit[$h] > 0) {
+                $bloqueActual[] = $h;
+            } else {
+                if (!empty($bloqueActual)) { $bloques[] = $bloqueActual; $bloqueActual = []; }
+            }
+        }
+        if (!empty($bloqueActual)) $bloques[] = $bloqueActual;
+
+        if (count($bloques) < 2) return [];
+
+        // Ordenar bloques por tamaño (mayor primero)
+        usort($bloques, fn($a, $b) => count($b) <=> count($a));
+
+        // Tomar los 2 bloques más grandes, respetando capacidad
+        $bloque1 = $bloques[0];
+        $bloque2 = $bloques[1];
+
+        // Recortar si excede capacidad
+        $total = count($bloque1) + count($bloque2);
+        if ($total > $capacidad) {
+            $porBloque = (int)floor($capacidad / 2);
+            $bloque1 = array_slice($bloque1, 0, $porBloque);
+            $bloque2 = array_slice($bloque2, 0, $capacidad - count($bloque1));
+        }
+
+        // Verificar que el gap entre bloques sea >= 1 hora (descanso mínimo)
+        $maxB1 = max($bloque1);
+        $minB2 = min($bloque2);
+        if ($maxB1 > $minB2) { // Reordenar
+            [$bloque1, $bloque2] = [$bloque2, $bloque1];
+        }
+
+        $resultado = array_merge($bloque1, $bloque2);
+        return count($resultado) >= $this->jornadaMinima ? $resultado : [];
     }
 
     /**
