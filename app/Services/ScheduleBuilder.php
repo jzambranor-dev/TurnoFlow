@@ -1493,6 +1493,16 @@ class ScheduleBuilder
      */
     private function repararDeficitConCompartidos(array $fechas): void
     {
+        // Determinar si la campaña destino es estrictamente presencial
+        // (opera solo en horario presencial, sin velada/teletrabajo)
+        $iniPres = (int)($this->campaign['hora_inicio_presencial'] ?? 9);
+        $finPres = (int)($this->campaign['hora_fin_presencial'] ?? 19);
+        $tieneVelada = $this->toBool($this->campaign['tiene_velada'] ?? false);
+        // Si no tiene velada y opera solo en horas presenciales → es campaña presencial
+        $campanaEsPresencial = !$tieneVelada
+            && (int)$this->campaign['hora_inicio_operacion'] >= $iniPres
+            && (int)$this->campaign['hora_fin_operacion'] <= $finPres;
+
         // Cargar datos de los asesores compartidos
         $sharedAdvisors = [];
         foreach ($this->sharedAdvisorIds as $advId => $_) {
@@ -1508,12 +1518,12 @@ class ScheduleBuilder
             $stmt->execute([':id' => $advId, ':target' => $this->campaignId]);
             $adv = $stmt->fetch();
             if ($adv) {
-                // Usar el menor entre max_horas_dia del asesor y max_horas del shared config
                 $adv['max_horas_dia'] = min(
                     (int)($adv['max_horas_dia'] ?? 10),
                     (int)($adv['shared_max_horas'] ?? 7)
                 );
                 $adv['tiene_vpn'] = $this->toBool($adv['tiene_vpn'] ?? false);
+                $adv['modalidad_trabajo'] = $adv['modalidad_trabajo'] ?? 'mixto';
                 $sharedAdvisors[$advId] = $adv;
             }
         }
@@ -1536,6 +1546,28 @@ class ScheduleBuilder
                         if (isset($this->assignments[$fecha][$hora][$advId])) continue;
                         if (isset($this->advisorSchedule[$advId][$fecha][$hora])) continue;
 
+                        // === MODALIDAD CHECK ===
+                        $modalidadAdv = $adv['modalidad_trabajo'];
+
+                        // Si la campaña destino es presencial, el asesor teletrabajo NO puede
+                        if ($campanaEsPresencial && $modalidadAdv === 'teletrabajo') continue;
+
+                        // Si el asesor es mixto y la campaña es presencial:
+                        // verificar que no tenga horas de teletrabajo ese día en su campaña origen
+                        // (si ya está trabajando de casa, no puede venir presencial)
+                        if ($campanaEsPresencial && $modalidadAdv === 'mixto') {
+                            $horasOrigenHoy = $this->advisorSchedule[$advId][$fecha] ?? [];
+                            $tieneTeletrabajoHoy = false;
+                            foreach (array_keys($horasOrigenHoy) as $hOrigen) {
+                                // Horas fuera del rango presencial = teletrabajo
+                                if ($hOrigen < $iniPres || $hOrigen >= $finPres) {
+                                    $tieneTeletrabajoHoy = true;
+                                    break;
+                                }
+                            }
+                            if ($tieneTeletrabajoHoy) continue;
+                        }
+
                         // Horas ya asignadas hoy en ESTA campaña
                         $horasHoyLocal = 0;
                         foreach (($this->assignments[$fecha] ?? []) as $h => $advs) {
@@ -1549,11 +1581,17 @@ class ScheduleBuilder
                         $horaFin = (int)($adv['hora_fin_contrato'] ?? 23);
                         if ($hora < $horaInicio || $hora > $horaFin) continue;
 
+                        // Si campaña presencial, solo asignar en horas presenciales
+                        if ($campanaEsPresencial && ($hora < $iniPres || $hora >= $finPres)) continue;
+
                         // VPN para nocturno
                         if ($this->esHoraNocturna($hora) && !$adv['tiene_vpn']) continue;
 
                         // Preferir asesor con menos horas asignadas (equidad)
                         $cap = ($adv['max_horas_dia'] - $horasHoyLocal) * 10;
+
+                        // Preferir asesores presenciales/mixtos sobre teletrabajo
+                        if ($modalidadAdv === 'presencial') $cap += 50;
 
                         // Preferir horas adyacentes a las ya asignadas
                         $horasExist = [];
