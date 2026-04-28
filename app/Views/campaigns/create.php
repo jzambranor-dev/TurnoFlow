@@ -1,5 +1,5 @@
 <?php
-$pageTitle = 'Nueva Campana';
+$pageTitle = 'Nueva Campaña';
 $currentPage = 'campaigns';
 
 ob_start();
@@ -15,7 +15,7 @@ ob_start();
                 <span>Nueva</span>
             </div>
             <h1 class="page-header-title">Nueva Campaña</h1>
-            <p class="page-header-subtitle">Configura una nueva campaña de operacion</p>
+            <p class="page-header-subtitle">Configura una nueva campaña de operación</p>
         </div>
         <a href="<?= BASE_URL ?>/campaigns" class="btn btn-secondary">
             <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
@@ -51,7 +51,7 @@ ob_start();
                     <label class="form-label">Supervisor <span class="required">*</span></label>
                     <div class="form-row-content">
                         <select name="supervisor_id" class="form-control" required>
-                            <option value="">Seleccióne un supervisor...</option>
+                            <option value="">Seleccione un supervisor...</option>
                             <?php foreach ($supervisors as $supervisor): ?>
                             <option value="<?= $supervisor['id'] ?>"><?= htmlspecialchars($supervisor['nombre_completo']) ?></option>
                             <?php endforeach; ?>
@@ -99,7 +99,7 @@ ob_start();
                     <label class="form-label">Max. Horas por Dia</label>
                     <div class="form-row-content">
                         <input type="number" name="max_horas_dia" class="form-control" value="10" min="8" max="16" style="max-width: 120px;">
-                        <div class="form-hint">Maximo de horas que un asesor puede trabajar por dia en esta campaña</div>
+                        <div class="form-hint">Máximo de horas que un asesor puede trabajar por día en esta campaña</div>
                     </div>
                 </div>
             </div>
@@ -148,7 +148,7 @@ ob_start();
                         </label>
                         <div id="breakDuracionRow" style="display: none; margin-top: 10px;">
                             <div class="input-group" style="max-width: 200px;">
-                                <span class="input-prepend">Duracion</span>
+                                <span class="input-prepend">Duración</span>
                                 <select name="duracion_break_min" class="form-control">
                                     <option value="15">15 min</option>
                                     <option value="30" selected>30 min</option>
@@ -179,7 +179,7 @@ ob_start();
             <a href="<?= BASE_URL ?>/campaigns" class="btn btn-secondary">Cancelar</a>
             <button type="submit" class="btn btn-primary">
                 <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-                Crear Campana
+                Crear Campaña
             </button>
         </div>
     </form>

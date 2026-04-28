@@ -126,7 +126,7 @@ ob_start();
                     <label class="form-label">Max. Horas por Dia</label>
                     <div class="form-row-content">
                         <input type="number" name="max_horas_dia" class="form-control" value="10" min="8" max="16" style="max-width: 120px;">
-                        <div class="form-hint">Maximo de horas que puede trabajar en un dia (8-16)</div>
+                        <div class="form-hint">Máximo de horas que puede trabajar en un día (8-16)</div>
                     </div>
                 </div>
             </div>

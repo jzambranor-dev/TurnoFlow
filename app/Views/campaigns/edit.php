@@ -1,5 +1,5 @@
 <?php
-$pageTitle = 'Editar Campana';
+$pageTitle = 'Editar Campaña';
 $currentPage = 'campaigns';
 
 ob_start();
@@ -228,9 +228,9 @@ ob_start();
                             <input type="checkbox" name="tiene_break" value="1" id="tieneBreak" <?= !empty($campaign['tiene_break']) ? 'checked' : '' ?>>
                             <span>Si, los asesores tienen break dentro del turno</span>
                         </label>
-                        <div id="breakDuracionRow" style="<?= !empty($campaign['tiene_break']) ? '' : 'display: none;' ?> margin-top: 10px;">
+                        <div id="breakDuraciónRow" style="<?= !empty($campaign['tiene_break']) ? '' : 'display: none;' ?> margin-top: 10px;">
                             <div class="input-group" style="max-width: 200px;">
-                                <span class="input-prepend">Duracion</span>
+                                <span class="input-prepend">Duración</span>
                                 <select name="duracion_break_min" class="form-control">
                                     <option value="15" <?= ($campaign['duracion_break_min'] ?? 30) == 15 ? 'selected' : '' ?>>15 min</option>
                                     <option value="30" <?= ($campaign['duracion_break_min'] ?? 30) == 30 ? 'selected' : '' ?>>30 min</option>
@@ -306,7 +306,7 @@ $extraScripts = ['
         document.getElementById("veladaConfig").style.display = this.checked ? "block" : "none";
     });
     document.getElementById("tieneBreak").addEventListener("change", function() {
-        document.getElementById("breakDuracionRow").style.display = this.checked ? "block" : "none";
+        document.getElementById("breakDuraciónRow").style.display = this.checked ? "block" : "none";
     });
 </script>
 '];

@@ -47,7 +47,7 @@ ob_start();
                     <label class="form-label">Max Horas/Dia <span class="required">*</span></label>
                     <div class="form-row-content">
                         <input type="number" name="max_horas_dia" class="form-control" value="3" min="1" max="8" style="max-width: 120px;" required>
-                        <div class="form-hint">Maximo de horas por dia que cada asesor puede trabajar en esta campaña</div>
+                        <div class="form-hint">Máximo de horas por día que cada asesor puede trabajar en esta campaña</div>
                     </div>
                 </div>
             </div>

@@ -139,9 +139,9 @@ ob_start();
                                     <td>Si vacio, se genera automatico</td>
                                 </tr>
                                 <tr>
-                                    <td><code>Campana</code></td>
+                                    <td><code>Campaña</code></td>
                                     <td><span class="req-badge req-yes">Si</span></td>
-                                    <td>Nombre exacto de la campana</td>
+                                    <td>Nombre exacto de la campaña</td>
                                 </tr>
                                 <tr>
                                     <td><code>Contrato</code></td>
@@ -173,7 +173,7 @@ ob_start();
                 <div class="info-content">
                     <ul class="tips-list">
                         <li>Si un asesor con la misma cedula ya existe, se <strong>actualizara</strong> en lugar de duplicarse.</li>
-                        <li>La campana debe existir previamente en el sistema con el <strong>nombre exacto</strong>.</li>
+                        <li>La campaña debe existir previamente en el sistema con el <strong>nombre exacto</strong>.</li>
                         <li>Las credenciales generadas se pueden descargar solo <strong>una vez</strong> despues de la importacion.</li>
                     </ul>
                 </div>

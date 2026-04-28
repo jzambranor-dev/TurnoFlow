@@ -56,9 +56,9 @@ ob_start();
 
                 <!-- Campaign selector -->
                 <div class="form-group">
-                    <label for="campaign_id" class="form-label">Campana <span class="required">*</span></label>
+                    <label for="campaign_id" class="form-label">Campaña <span class="required">*</span></label>
                     <select name="campaign_id" id="campaign_id" class="form-control" required>
-                        <option value="">-- Seleccionar campana --</option>
+                        <option value="">-- Seleccionar campaña --</option>
                         <?php foreach ($campaigns as $c): ?>
                         <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['nombre']) ?></option>
                         <?php endforeach; ?>

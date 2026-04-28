@@ -46,7 +46,7 @@ ob_start();
         <form method="GET" action="<?= BASE_URL ?>/breaks" class="filter-form">
             <div class="filter-group">
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width:18px;height:18px;color:#64748b;flex-shrink:0;"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
-                <label for="campaign_id" style="font-weight: 600; white-space: nowrap;">Campana:</label>
+                <label for="campaign_id" style="font-weight: 600; white-space: nowrap;">Campaña:</label>
                 <select name="campaign_id" id="campaign_id" class="filter-select" style="min-width:200px;">
                     <option value="">-- Seleccionar --</option>
                     <?php foreach ($campaigns as $c): ?>
@@ -69,8 +69,8 @@ ob_start();
             <div class="empty-state-icon">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
             </div>
-            <h5>Selecciona una campana y fecha</h5>
-            <p>Elige una campana y la fecha para ver el reporte de cumplimiento de breaks.</p>
+            <h5>Selecciona una campaña y fecha</h5>
+            <p>Elige una campaña y la fecha para ver el reporte de cumplimiento de breaks.</p>
         </div>
     </div>
 
