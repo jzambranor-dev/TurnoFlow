@@ -24,7 +24,8 @@ class BreakComplianceController
     use FlashMessageTrait;
 
     /**
-     * Main dashboard — cruce of planned vs actual break data.
+     * Main dashboard -- cruce of planned vs actual break data.
+     * Now date-based instead of month-based.
      */
     public function index(): void
     {
@@ -36,50 +37,48 @@ class BreakComplianceController
         $campaigns = $this->loadCampaigns($pdo, $user);
 
         $campaignId = (int)($_GET['campaign_id'] ?? 0);
-        $year = (int)($_GET['year'] ?? (int)date('Y'));
-        $month = (int)($_GET['month'] ?? (int)date('n'));
+        $fecha = $_GET['fecha'] ?? date('Y-m-d');
 
-        if ($month < 1 || $month > 12) {
-            $month = (int)date('n');
-        }
-        if ($year < 2000) {
-            $year = (int)date('Y');
+        // Validate date format
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha)) {
+            $fecha = date('Y-m-d');
         }
 
         $cruceData = [];
         $campaign = null;
         $breakImport = null;
-        $duracionBreakMin = 0;
 
         if ($campaignId > 0) {
-            // Verify campaign access
-            $stmtCamp = $pdo->prepare("SELECT id, nombre, duracion_break_min FROM campaigns WHERE id = :id AND estado = 'activa'");
+            $stmtCamp = $pdo->prepare("SELECT id, nombre FROM campaigns WHERE id = :id AND estado = 'activa'");
             $stmtCamp->execute([':id' => $campaignId]);
             $campaign = $stmtCamp->fetch(PDO::FETCH_ASSOC);
 
             if ($campaign) {
-                $duracionBreakMin = (int)($campaign['duracion_break_min'] ?? 30);
-
-                $daysInMonth = (int)cal_days_in_month(CAL_GREGORIAN, $month, $year);
-                $fechaInicio = sprintf('%04d-%02d-01', $year, $month);
-                $fechaFin = sprintf('%04d-%02d-%02d', $year, $month, $daysInMonth);
-
-                // Check import status
+                // Check import status for this date
                 $stmtImport = $pdo->prepare("
                     SELECT * FROM break_imports
-                    WHERE campaign_id = :cid AND periodo_anio = :y AND periodo_mes = :m
+                    WHERE campaign_id = :cid AND fecha = :fecha
                 ");
-                $stmtImport->execute([':cid' => $campaignId, ':y' => $year, ':m' => $month]);
+                $stmtImport->execute([':cid' => $campaignId, ':fecha' => $fecha]);
                 $breakImport = $stmtImport->fetch(PDO::FETCH_ASSOC);
 
                 // Cruce query
-                $cruceData = $this->getCruceData($pdo, $campaignId, $fechaInicio, $fechaFin);
+                $cruceData = $this->getCruceData($pdo, $campaignId, $fecha);
             }
         }
 
         $flashSuccess = $_SESSION['flash_success'] ?? null;
         $flashError = $_SESSION['flash_error'] ?? null;
         unset($_SESSION['flash_success'], $_SESSION['flash_error']);
+
+        $selectedCampaign = $campaignId;
+        $selectedDate = $fecha;
+        $importInfo = $breakImport ? [
+            'fecha' => $breakImport['imported_at'] ?? '-',
+            'total_registros' => $breakImport['total_registros'] ?? 0,
+            'asesores_matched' => $breakImport['asesores_matched'] ?? 0,
+            'asesores_unmatched' => $breakImport['asesores_unmatched'] ?? 0,
+        ] : null;
 
         $pageTitle = 'Cumplimiento Break';
         $currentPage = 'breaks';
@@ -114,6 +113,7 @@ class BreakComplianceController
 
     /**
      * Process the uploaded Excel file.
+     * Now accepts a single date instead of month/year.
      */
     public function import(): void
     {
@@ -125,12 +125,19 @@ class BreakComplianceController
             exit;
         }
 
-        $campaignId  = (int)($_POST['campaign_id'] ?? 0);
-        $periodoMes  = (int)($_POST['periodo_mes'] ?? 0);
-        $periodoAnio = (int)($_POST['periodo_anio'] ?? 0);
+        $campaignId = (int)($_POST['campaign_id'] ?? 0);
+        $fecha = trim($_POST['fecha'] ?? '');
 
-        if ($campaignId <= 0 || $periodoMes < 1 || $periodoMes > 12 || $periodoAnio < 2000) {
-            $this->setFlash('error', 'Datos de importacion invalidos.');
+        // Validate campaign
+        if ($campaignId <= 0) {
+            $this->setFlash('error', 'Selecciona una campana valida.');
+            header('Location: ' . BASE_URL . '/breaks/import');
+            exit;
+        }
+
+        // Validate date
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha) || !strtotime($fecha)) {
+            $this->setFlash('error', 'Fecha invalida. Usa el formato YYYY-MM-DD.');
             header('Location: ' . BASE_URL . '/breaks/import');
             exit;
         }
@@ -150,8 +157,8 @@ class BreakComplianceController
 
         $originalName = (string)($file['name'] ?? '');
         $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-        if (!in_array($extension, ['xlsx', 'xls', 'csv'], true)) {
-            $this->setFlash('error', 'Formato no permitido. Usa .xlsx, .xls o .csv.');
+        if (!in_array($extension, ['xlsx', 'xls'], true)) {
+            $this->setFlash('error', 'Formato no permitido. Usa .xlsx o .xls.');
             header('Location: ' . BASE_URL . '/breaks/import');
             exit;
         }
@@ -174,10 +181,9 @@ class BreakComplianceController
         }
 
         $storedName = sprintf(
-            'break_c%d_%04d_%02d_%s.%s',
+            'break_c%d_%s_%s.%s',
             $campaignId,
-            $periodoAnio,
-            $periodoMes,
+            str_replace('-', '', $fecha),
             date('Ymd_His'),
             $extension
         );
@@ -193,8 +199,7 @@ class BreakComplianceController
             $result = \App\Services\BreakImportService::processExcel(
                 $targetPath,
                 $campaignId,
-                $periodoMes,
-                $periodoAnio,
+                $fecha,
                 (int)$user['id']
             );
 
@@ -204,19 +209,17 @@ class BreakComplianceController
             }
 
             $msg = sprintf(
-                'Importacion completada para %s (%02d/%04d). %d asesores matched, %d sin match, %d fechas procesadas.',
+                'Importacion completada para %s (%s). %d asesores matched, %d sin match, %d omitidos (dia libre).',
                 $campaign['nombre'],
-                $periodoMes,
-                $periodoAnio,
+                $fecha,
                 $result['matched'],
                 $result['unmatched'],
-                $result['dates_found']
+                $result['skipped']
             );
 
             $this->setFlash('success', $msg);
             $_SESSION['break_import_results'] = $result;
         } catch (Throwable $e) {
-            // Delete uploaded file on error too
             if (file_exists($targetPath)) {
                 @unlink($targetPath);
             }
@@ -230,7 +233,7 @@ class BreakComplianceController
     }
 
     /**
-     * JSON API — cruce data for AJAX table loading.
+     * JSON API -- cruce data for AJAX table loading.
      */
     public function reportData(): void
     {
@@ -239,17 +242,15 @@ class BreakComplianceController
         $pdo = Database::getConnection();
 
         $campaignId = (int)($_GET['campaign_id'] ?? 0);
-        $year = (int)($_GET['year'] ?? (int)date('Y'));
-        $month = (int)($_GET['month'] ?? (int)date('n'));
+        $fecha = $_GET['fecha'] ?? date('Y-m-d');
 
-        if ($campaignId <= 0 || $month < 1 || $month > 12 || $year < 2000) {
+        if ($campaignId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha)) {
             header('Content-Type: application/json');
             echo json_encode(['success' => false, 'error' => 'Parametros invalidos']);
             exit;
         }
 
-        // Get campaign info for duracion_break_min
-        $stmtCamp = $pdo->prepare("SELECT id, duracion_break_min FROM campaigns WHERE id = :id AND estado = 'activa'");
+        $stmtCamp = $pdo->prepare("SELECT id, nombre FROM campaigns WHERE id = :id AND estado = 'activa'");
         $stmtCamp->execute([':id' => $campaignId]);
         $campaign = $stmtCamp->fetch(PDO::FETCH_ASSOC);
 
@@ -259,20 +260,7 @@ class BreakComplianceController
             exit;
         }
 
-        $duracionBreakMin = (int)($campaign['duracion_break_min'] ?? 30);
-        $daysInMonth = (int)cal_days_in_month(CAL_GREGORIAN, $month, $year);
-        $fechaInicio = sprintf('%04d-%02d-01', $year, $month);
-        $fechaFin = sprintf('%04d-%02d-%02d', $year, $month, $daysInMonth);
-
-        $data = $this->getCruceData($pdo, $campaignId, $fechaInicio, $fechaFin);
-
-        // Add computed fields
-        foreach ($data as &$row) {
-            $plannedMinutes = (int)$row['planned_slots'] * $duracionBreakMin;
-            $row['planned_minutes'] = $plannedMinutes;
-            $row['exceso_computed'] = max(0, round((float)$row['actual_minutes'] - $plannedMinutes, 2));
-        }
-        unset($row);
+        $data = $this->getCruceData($pdo, $campaignId, $fecha);
 
         header('Content-Type: application/json');
         echo json_encode(['success' => true, 'data' => $data]);
@@ -289,16 +277,15 @@ class BreakComplianceController
         $pdo = Database::getConnection();
 
         $campaignId = (int)($_GET['campaign_id'] ?? 0);
-        $year = (int)($_GET['year'] ?? (int)date('Y'));
-        $month = (int)($_GET['month'] ?? (int)date('n'));
+        $fecha = $_GET['fecha'] ?? '';
 
-        if ($campaignId <= 0 || $month < 1 || $month > 12 || $year < 2000) {
+        if ($campaignId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha)) {
             $this->setFlash('error', 'Parametros invalidos para exportacion.');
             header('Location: ' . BASE_URL . '/breaks');
             exit;
         }
 
-        $stmtCamp = $pdo->prepare("SELECT id, nombre, duracion_break_min FROM campaigns WHERE id = :id AND estado = 'activa'");
+        $stmtCamp = $pdo->prepare("SELECT id, nombre FROM campaigns WHERE id = :id AND estado = 'activa'");
         $stmtCamp->execute([':id' => $campaignId]);
         $campaign = $stmtCamp->fetch(PDO::FETCH_ASSOC);
 
@@ -308,12 +295,7 @@ class BreakComplianceController
             exit;
         }
 
-        $duracionBreakMin = (int)($campaign['duracion_break_min'] ?? 30);
-        $daysInMonth = (int)cal_days_in_month(CAL_GREGORIAN, $month, $year);
-        $fechaInicio = sprintf('%04d-%02d-01', $year, $month);
-        $fechaFin = sprintf('%04d-%02d-%02d', $year, $month, $daysInMonth);
-
-        $data = $this->getCruceData($pdo, $campaignId, $fechaInicio, $fechaFin);
+        $data = $this->getCruceData($pdo, $campaignId, $fecha);
 
         try {
             $spreadsheet = new Spreadsheet();
@@ -322,9 +304,9 @@ class BreakComplianceController
 
             // Headers
             $headers = [
-                'Nombre', 'Cedula', 'Break Planificado (min)',
-                'Break Real (min)', 'Exceso Excel (min)',
-                'Exceso Computado (min)', 'Horas Trabajadas', 'Dias con Datos',
+                'Nombre', 'Cedula', 'Usuario', 'Horas Trab.',
+                'Horario', 'Break Asignado (min)', 'Break Usado (min)',
+                'Break Disponible (min)', 'Exceso (min)', 'Estado',
             ];
             foreach ($headers as $col => $header) {
                 $cell = $sheet->getCellByColumnAndRow($col + 1, 1);
@@ -333,7 +315,8 @@ class BreakComplianceController
             }
 
             // Style header
-            $sheet->getStyle('A1:H1')->applyFromArray([
+            $lastCol = chr(64 + count($headers)); // A=65
+            $sheet->getStyle("A1:{$lastCol}1")->applyFromArray([
                 'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
                 'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'D9E2F3']],
                 'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]],
@@ -342,28 +325,27 @@ class BreakComplianceController
             // Data rows
             foreach ($data as $i => $row) {
                 $r = $i + 2;
-                $plannedMinutes = (int)$row['planned_slots'] * $duracionBreakMin;
-                $excesoComputed = max(0, round((float)$row['actual_minutes'] - $plannedMinutes, 2));
+                $exceso = (float)($row['exceso_min'] ?? 0);
 
-                $sheet->setCellValueByColumnAndRow(1, $r, $row['apellidos'] . ' ' . $row['nombres']);
+                $sheet->setCellValueByColumnAndRow(1, $r, ($row['apellidos'] ?? '') . ' ' . ($row['nombres'] ?? ''));
                 $sheet->setCellValueByColumnAndRow(2, $r, $row['cedula'] ?? '');
-                $sheet->setCellValueByColumnAndRow(3, $r, $plannedMinutes);
-                $sheet->setCellValueByColumnAndRow(4, $r, round((float)$row['actual_minutes'], 2));
-                $sheet->setCellValueByColumnAndRow(5, $r, round((float)$row['exceso_excel'], 2));
-                $sheet->setCellValueByColumnAndRow(6, $r, $excesoComputed);
-                $sheet->setCellValueByColumnAndRow(7, $r, round((float)$row['horas_trabajadas'], 2));
-                $sheet->setCellValueByColumnAndRow(8, $r, (int)$row['dias_con_datos']);
+                $sheet->setCellValueByColumnAndRow(3, $r, $row['usuario_excel'] ?? '');
+                $sheet->setCellValueByColumnAndRow(4, $r, (int)($row['horas_trabajadas'] ?? 0));
+                $sheet->setCellValueByColumnAndRow(5, $r, $row['horario_texto'] ?? '');
+                $sheet->setCellValueByColumnAndRow(6, $r, round((float)($row['break_asignado_min'] ?? 0), 2));
+                $sheet->setCellValueByColumnAndRow(7, $r, round((float)($row['break_usado_min'] ?? 0), 2));
+                $sheet->setCellValueByColumnAndRow(8, $r, round((float)($row['break_disponible_min'] ?? 0), 2));
+                $sheet->setCellValueByColumnAndRow(9, $r, round($exceso, 2));
+                $sheet->setCellValueByColumnAndRow(10, $r, $exceso > 0 ? 'Exceso' : 'OK');
             }
 
             // Auto-size columns
-            foreach (range('A', 'H') as $col) {
+            foreach (range('A', $lastCol) as $col) {
                 $sheet->getColumnDimension($col)->setAutoSize(true);
             }
 
-            $monthNames = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-                'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
             $campName = str_replace(' ', '_', $campaign['nombre']);
-            $filename = sprintf('Break_Compliance_%s_%s_%d.xlsx', $campName, $monthNames[$month], $year);
+            $filename = sprintf('Break_Compliance_%s_%s.xlsx', $campName, $fecha);
 
             header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
             header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -421,47 +403,45 @@ class BreakComplianceController
     }
 
     /**
-     * Execute the cruce query: planned breaks vs actual break data.
+     * Execute the cruce query: break data from break_daily for a specific date.
+     *
+     * Joins with break_rules to compare assigned break vs rule-based break,
+     * and optionally with shift_assignments for TurnoFlow planned hours.
      */
-    private function getCruceData(PDO $pdo, int $campaignId, string $fechaInicio, string $fechaFin): array
+    private function getCruceData(PDO $pdo, int $campaignId, string $fecha): array
     {
         $stmt = $pdo->prepare("
             SELECT
-                a.id, a.nombres, a.apellidos, a.cedula,
-                COALESCE(planned.break_slots, 0) as planned_slots,
-                COALESCE(actual.total_bk_normal, 0) as actual_minutes,
-                COALESCE(actual.total_exceso, 0) as exceso_excel,
-                COALESCE(actual.total_horas, 0) as horas_trabajadas,
-                COALESCE(actual.dias_con_datos, 0) as dias_con_datos
-            FROM advisors a
+                a.id,
+                a.nombres,
+                a.apellidos,
+                a.cedula,
+                bd.usuario_excel,
+                bd.horas_trabajadas,
+                bd.horario_texto,
+                bd.break_asignado_min,
+                bd.break_usado_min,
+                bd.break_disponible_min,
+                bd.exceso_min,
+                COALESCE(br.break_minutes, 0) as regla_break_min,
+                COALESCE(tf.tf_hours, 0) as tf_horas_planificadas
+            FROM break_daily bd
+            JOIN advisors a ON a.id = bd.advisor_id
+            LEFT JOIN break_rules br ON br.horas_trabajo = bd.horas_trabajadas
             LEFT JOIN (
-                SELECT advisor_id, COUNT(*) as break_slots
+                SELECT advisor_id, COUNT(*) as tf_hours
                 FROM shift_assignments
-                WHERE campaign_id = :cid AND tipo = 'break'
-                  AND fecha BETWEEN :ini AND :fin
+                WHERE campaign_id = :cid AND fecha = :fecha AND tipo <> 'break'
                 GROUP BY advisor_id
-            ) planned ON planned.advisor_id = a.id
-            LEFT JOIN (
-                SELECT advisor_id,
-                       SUM(bk_normal_minutes) as total_bk_normal,
-                       SUM(exceso_minutes) as total_exceso,
-                       SUM(horas_trabajadas) as total_horas,
-                       COUNT(*) as dias_con_datos
-                FROM break_snapshots
-                WHERE campaign_id = :cid2 AND fecha BETWEEN :ini2 AND :fin2
-                GROUP BY advisor_id
-            ) actual ON actual.advisor_id = a.id
-            WHERE a.campaign_id = :cid3 AND a.estado = 'activo'
+            ) tf ON tf.advisor_id = a.id
+            WHERE bd.campaign_id = :cid2 AND bd.fecha = :fecha2
             ORDER BY a.apellidos, a.nombres
         ");
         $stmt->execute([
-            ':cid'  => $campaignId,
-            ':ini'  => $fechaInicio,
-            ':fin'  => $fechaFin,
-            ':cid2' => $campaignId,
-            ':ini2' => $fechaInicio,
-            ':fin2' => $fechaFin,
-            ':cid3' => $campaignId,
+            ':cid'    => $campaignId,
+            ':fecha'  => $fecha,
+            ':cid2'   => $campaignId,
+            ':fecha2' => $fecha,
         ]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }

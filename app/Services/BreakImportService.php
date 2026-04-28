@@ -6,7 +6,6 @@ namespace App\Services;
 
 use Database;
 use PhpOffice\PhpSpreadsheet\IOFactory;
-use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PDO;
 use RuntimeException;
 use Throwable;
@@ -14,87 +13,73 @@ use Throwable;
 class BreakImportService
 {
     /**
-     * Process an uploaded BREAK_POST.xlsx file (sheet "EXCESOS BREAK").
+     * Process an uploaded BREAK_POST.xlsx file (sheet "BREAK").
      *
-     * @return array{matched: int, unmatched: int, rows_processed: int, dates_found: int, errors: array, unmatched_names: array}
+     * The BREAK sheet has daily summary per advisor:
+     *   A: USUARIO | B: AGENTES | C: TOTAL HORAS | D: HORARIO
+     *   E: BREAK | F: BREAK USADO | G: BREAK DISPONIBLE
+     *
+     * Columns E-G contain Excel time fractions (day fractions).
+     * Multiply by 1440 to get minutes.
+     *
+     * @return array{matched: int, unmatched: int, skipped: int, errors: array, unmatched_names: array}
      */
     public static function processExcel(
         string $filePath,
         int $campaignId,
-        int $periodoMes,
-        int $periodoAnio,
+        string $fecha,
         int $userId
     ): array {
         $pdo = Database::getConnection();
 
         $spreadsheet = IOFactory::load($filePath);
 
-        // Find sheet "EXCESOS BREAK" by name (case-insensitive)
+        // Find sheet "BREAK" by name (case-insensitive)
         $sheet = null;
         foreach ($spreadsheet->getSheetNames() as $name) {
-            if (mb_strtolower($name) === 'excesos break') {
+            if (mb_strtolower(trim($name)) === 'break') {
                 $sheet = $spreadsheet->getSheetByName($name);
                 break;
             }
         }
 
         if ($sheet === null) {
-            throw new RuntimeException('No se encontro la hoja "EXCESOS BREAK" en el archivo.');
+            throw new RuntimeException('No se encontro la hoja "BREAK" en el archivo.');
         }
 
         $highestRow = $sheet->getHighestRow();
-        $highestCol = $sheet->getHighestDataColumn();
-        $highestColIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($highestCol);
 
-        // Step 1: Detect date columns from row 1 (index 0)
-        // Scan columns starting from E (index 4) for numeric values > 40000 (Excel serial dates)
-        $dateColumns = []; // [col_index => 'Y-m-d']
+        // Load active advisors for this campaign
+        $stmtAdvisors = $pdo->prepare("
+            SELECT id, cedula, nombres, apellidos
+            FROM advisors
+            WHERE campaign_id = :cid AND estado = 'activo'
+        ");
+        $stmtAdvisors->execute([':cid' => $campaignId]);
+        $allAdvisors = $stmtAdvisors->fetchAll(PDO::FETCH_ASSOC);
 
-        for ($col = 4; $col < $highestColIndex; $col++) {
-            $cellValue = $sheet->getCellByColumnAndRow($col + 1, 1)->getValue();
-            if ($cellValue !== null && is_numeric($cellValue) && (float)$cellValue > 40000) {
-                $dateObj = ExcelDate::excelToDateTimeObject((float)$cellValue);
-                $dateColumns[$col] = $dateObj->format('Y-m-d');
-            }
-        }
+        // Build lookup maps for name matching
+        $advisorByFullName = [];
+        $advisorWords = []; // advisor_id => array of normalized words
+        foreach ($allAdvisors as $adv) {
+            // Primary: "apellidos nombres" (normalized)
+            $fullAp = mb_strtolower(trim($adv['apellidos'] . ' ' . $adv['nombres']));
+            $advisorByFullName[$fullAp] = $adv;
 
-        if (empty($dateColumns)) {
-            throw new RuntimeException('No se encontraron fechas validas en la fila 1 del archivo.');
-        }
+            // Also reversed: "nombres apellidos"
+            $fullNa = mb_strtolower(trim($adv['nombres'] . ' ' . $adv['apellidos']));
+            $advisorByFullName[$fullNa] = $adv;
 
-        // Step 2: Group dates into 4-column sets starting from column 4
-        // Each date occupies columns: col+0=HT, col+1=BK NORMAL, col+2=BREAK ICBM, col+3=EXCESO
-        $dateGroups = []; // [['date' => 'Y-m-d', 'col_ht' => int, 'col_bk' => int, 'col_icbm' => int, 'col_exceso' => int]]
-        foreach ($dateColumns as $colIndex => $dateStr) {
-            $dateGroups[] = [
-                'date'       => $dateStr,
-                'col_ht'     => $colIndex,
-                'col_bk'     => $colIndex + 1,
-                'col_icbm'   => $colIndex + 2,
-                'col_exceso' => $colIndex + 3,
+            // Store individual words for fuzzy matching
+            $words = preg_split('/\s+/', mb_strtolower(trim($adv['apellidos'] . ' ' . $adv['nombres'])));
+            $words = array_filter($words, fn(string $w) => mb_strlen($w) > 1);
+            $advisorWords[$adv['id']] = [
+                'advisor' => $adv,
+                'words'   => $words,
             ];
         }
 
-        // Step 3: Load advisors for matching
-        $stmtAdvisors = $pdo->prepare("
-            SELECT id, cedula, nombres, apellidos, campaign_id
-            FROM advisors
-            WHERE estado = 'activo'
-        ");
-        $stmtAdvisors->execute();
-        $allAdvisors = $stmtAdvisors->fetchAll(PDO::FETCH_ASSOC);
-
-        $lookupByCedula = [];
-        $lookupByName = [];
-        foreach ($allAdvisors as $adv) {
-            if (!empty($adv['cedula'])) {
-                $lookupByCedula[mb_strtolower(trim($adv['cedula']))] = $adv;
-            }
-            $fullName = mb_strtolower(trim($adv['nombres'] . ' ' . $adv['apellidos']));
-            $lookupByName[$fullName] = $adv;
-        }
-
-        // Step 4: Create/update break_imports record (UPSERT)
+        // Create/update break_imports record (UPSERT by campaign_id + fecha)
         $storedName = basename($filePath);
 
         $pdo->beginTransaction();
@@ -102,13 +87,13 @@ class BreakImportService
         try {
             $stmtImport = $pdo->prepare("
                 INSERT INTO break_imports (
-                    campaign_id, periodo_anio, periodo_mes, archivo_nombre,
-                    importado_por, estado
+                    campaign_id, fecha, periodo_anio, periodo_mes,
+                    archivo_nombre, importado_por, estado
                 ) VALUES (
-                    :campaign_id, :periodo_anio, :periodo_mes, :archivo_nombre,
-                    :importado_por, 'pendiente'
+                    :campaign_id, :fecha, :periodo_anio, :periodo_mes,
+                    :archivo_nombre, :importado_por, 'pendiente'
                 )
-                ON CONFLICT (campaign_id, periodo_anio, periodo_mes)
+                ON CONFLICT (campaign_id, fecha)
                 DO UPDATE SET
                     archivo_nombre = EXCLUDED.archivo_nombre,
                     importado_por = EXCLUDED.importado_por,
@@ -117,75 +102,97 @@ class BreakImportService
                     imported_at = NOW()
                 RETURNING id
             ");
+
+            $fechaParts = explode('-', $fecha);
             $stmtImport->execute([
-                ':campaign_id'  => $campaignId,
-                ':periodo_anio' => $periodoAnio,
-                ':periodo_mes'  => $periodoMes,
+                ':campaign_id'    => $campaignId,
+                ':fecha'          => $fecha,
+                ':periodo_anio'   => (int)$fechaParts[0],
+                ':periodo_mes'    => (int)$fechaParts[1],
                 ':archivo_nombre' => $storedName,
                 ':importado_por'  => $userId,
             ]);
             $importId = (int)$stmtImport->fetchColumn();
 
-            // Step 5: Delete existing break_snapshots for this import (clean re-import)
-            $stmtDelete = $pdo->prepare("DELETE FROM break_snapshots WHERE import_id = :import_id");
-            $stmtDelete->execute([':import_id' => $importId]);
+            // Delete existing break_daily for this campaign + fecha (clean re-import)
+            $stmtDelete = $pdo->prepare("
+                DELETE FROM break_daily
+                WHERE campaign_id = :cid AND fecha = :fecha
+            ");
+            $stmtDelete->execute([':cid' => $campaignId, ':fecha' => $fecha]);
 
-            // Prepare insert for break_snapshots
+            // Prepare upsert for break_daily
             $stmtInsert = $pdo->prepare("
-                INSERT INTO break_snapshots (
+                INSERT INTO break_daily (
                     import_id, advisor_id, campaign_id, fecha,
-                    horas_trabajadas, bk_normal_minutes, break_icbm_seconds,
-                    exceso_minutes, usuario_excel
+                    usuario_excel, horas_trabajadas, horario_texto,
+                    break_asignado_min, break_usado_min,
+                    break_disponible_min, exceso_min
                 ) VALUES (
                     :import_id, :advisor_id, :campaign_id, :fecha,
-                    :horas_trabajadas, :bk_normal_minutes, :break_icbm_seconds,
-                    :exceso_minutes, :usuario_excel
+                    :usuario_excel, :horas_trabajadas, :horario_texto,
+                    :break_asignado_min, :break_usado_min,
+                    :break_disponible_min, :exceso_min
                 )
                 ON CONFLICT (advisor_id, fecha)
                 DO UPDATE SET
                     import_id = EXCLUDED.import_id,
                     campaign_id = EXCLUDED.campaign_id,
+                    usuario_excel = EXCLUDED.usuario_excel,
                     horas_trabajadas = EXCLUDED.horas_trabajadas,
-                    bk_normal_minutes = EXCLUDED.bk_normal_minutes,
-                    break_icbm_seconds = EXCLUDED.break_icbm_seconds,
-                    exceso_minutes = EXCLUDED.exceso_minutes,
-                    usuario_excel = EXCLUDED.usuario_excel
+                    horario_texto = EXCLUDED.horario_texto,
+                    break_asignado_min = EXCLUDED.break_asignado_min,
+                    break_usado_min = EXCLUDED.break_usado_min,
+                    break_disponible_min = EXCLUDED.break_disponible_min,
+                    exceso_min = EXCLUDED.exceso_min
             ");
 
             $matched = 0;
             $unmatched = 0;
-            $rowsProcessed = 0;
+            $skipped = 0;
             $errors = [];
             $unmatchedNames = [];
 
-            // Step 6: Process advisor rows (starting from row 3, index 2 in 0-based = row 3 in 1-based)
-            for ($row = 3; $row <= $highestRow; $row++) {
-                $usuario = trim((string)$sheet->getCellByColumnAndRow(1, $row)->getValue());
-                $nombre  = trim((string)$sheet->getCellByColumnAndRow(2, $row)->getValue());
-                $cedula  = trim((string)$sheet->getCellByColumnAndRow(3, $row)->getValue());
+            // Process rows starting from row 2 (row 1 = headers)
+            for ($row = 2; $row <= $highestRow; $row++) {
+                $usuario    = trim((string)$sheet->getCellByColumnAndRow(1, $row)->getValue());
+                $nombre     = trim((string)$sheet->getCellByColumnAndRow(2, $row)->getValue());
+                $totalHoras = $sheet->getCellByColumnAndRow(3, $row)->getValue();
+                $horario    = trim((string)$sheet->getCellByColumnAndRow(4, $row)->getValue());
 
-                // Skip empty rows
-                if ($usuario === '' && $nombre === '' && $cedula === '') {
+                // Skip completely empty rows
+                if ($usuario === '' && $nombre === '') {
                     continue;
                 }
 
-                $rowsProcessed++;
+                // Parse total horas
+                $horasNum = is_numeric($totalHoras) ? (int)round((float)$totalHoras) : 0;
 
-                // Match advisor: by cedula first, then by name
-                $advisor = null;
-                if ($cedula !== '') {
-                    $cedulaKey = mb_strtolower($cedula);
-                    if (isset($lookupByCedula[$cedulaKey])) {
-                        $advisor = $lookupByCedula[$cedulaKey];
-                    }
+                // Skip day-off advisors: TOTAL HORAS = 0 or HORARIO = "LIBRE"/"Libre"
+                if ($horasNum === 0 || mb_strtolower(trim($horario)) === 'libre') {
+                    $skipped++;
+                    continue;
                 }
 
-                if ($advisor === null && $nombre !== '') {
-                    $nameKey = mb_strtolower($nombre);
-                    if (isset($lookupByName[$nameKey])) {
-                        $advisor = $lookupByName[$nameKey];
-                    }
-                }
+                // Read break columns (Excel time fractions)
+                $rawBreakAsignado  = $sheet->getCellByColumnAndRow(5, $row)->getValue();
+                $rawBreakUsado     = $sheet->getCellByColumnAndRow(6, $row)->getValue();
+                $rawBreakDisponible = $sheet->getCellByColumnAndRow(7, $row)->getValue();
+
+                // Convert from day fraction to minutes
+                $breakAsignadoMin  = self::timeFractionToMinutes($rawBreakAsignado);
+                $breakUsadoMin     = self::timeFractionToMinutes($rawBreakUsado);
+                $breakDisponibleMin = self::timeFractionToMinutes($rawBreakDisponible);
+
+                // Calculate exceso: used - assigned (positive = over-break)
+                $excesoMin = round($breakUsadoMin - $breakAsignadoMin, 2);
+
+                // Match advisor by name
+                $advisor = self::matchAdvisor(
+                    $nombre,
+                    $advisorByFullName,
+                    $advisorWords
+                );
 
                 if ($advisor === null) {
                     $unmatched++;
@@ -193,56 +200,36 @@ class BreakImportService
                         'row'     => $row,
                         'usuario' => $usuario,
                         'nombre'  => $nombre,
-                        'cedula'  => $cedula,
                     ];
                     continue;
                 }
 
                 $matched++;
-                $advisorId = (int)$advisor['id'];
 
-                // Process each date group
-                foreach ($dateGroups as $group) {
-                    $rawHt     = $sheet->getCellByColumnAndRow($group['col_ht'] + 1, $row)->getValue();
-                    $rawBk     = $sheet->getCellByColumnAndRow($group['col_bk'] + 1, $row)->getValue();
-                    $rawIcbm   = $sheet->getCellByColumnAndRow($group['col_icbm'] + 1, $row)->getValue();
-                    $rawExceso = $sheet->getCellByColumnAndRow($group['col_exceso'] + 1, $row)->getValue();
-
-                    // Skip dates with no data (all zeros/nulls)
-                    if (self::isEmptyValue($rawHt) && self::isEmptyValue($rawBk)
-                        && self::isEmptyValue($rawIcbm) && self::isEmptyValue($rawExceso)) {
-                        continue;
-                    }
-
-                    // Convert values
-                    $ht = self::parseHorasTrabajadas($rawHt);
-                    $bkNormalMinutes = self::fractionToMinutes($rawBk);
-                    $icbmSeconds = self::fractionToSeconds($rawIcbm);
-                    $excesoMinutes = self::fractionToMinutes($rawExceso);
-
-                    try {
-                        $stmtInsert->execute([
-                            ':import_id'          => $importId,
-                            ':advisor_id'         => $advisorId,
-                            ':campaign_id'        => $campaignId,
-                            ':fecha'              => $group['date'],
-                            ':horas_trabajadas'   => $ht,
-                            ':bk_normal_minutes'  => $bkNormalMinutes,
-                            ':break_icbm_seconds' => $icbmSeconds,
-                            ':exceso_minutes'     => $excesoMinutes,
-                            ':usuario_excel'      => $usuario,
-                        ]);
-                    } catch (Throwable $e) {
-                        $errors[] = [
-                            'row'     => $row,
-                            'date'    => $group['date'],
-                            'message' => $e->getMessage(),
-                        ];
-                    }
+                try {
+                    $stmtInsert->execute([
+                        ':import_id'          => $importId,
+                        ':advisor_id'         => (int)$advisor['id'],
+                        ':campaign_id'        => $campaignId,
+                        ':fecha'              => $fecha,
+                        ':usuario_excel'      => $usuario,
+                        ':horas_trabajadas'   => $horasNum,
+                        ':horario_texto'      => $horario,
+                        ':break_asignado_min' => $breakAsignadoMin,
+                        ':break_usado_min'    => $breakUsadoMin,
+                        ':break_disponible_min' => $breakDisponibleMin,
+                        ':exceso_min'         => $excesoMin,
+                    ]);
+                } catch (Throwable $e) {
+                    $errors[] = [
+                        'row'     => $row,
+                        'usuario' => $usuario,
+                        'message' => $e->getMessage(),
+                    ];
                 }
             }
 
-            // Step 7: Update break_imports with totals
+            // Update break_imports with totals
             $stmtUpdate = $pdo->prepare("
                 UPDATE break_imports SET
                     total_registros = :total,
@@ -254,7 +241,7 @@ class BreakImportService
             ");
             $erroresJson = !empty($errors) ? json_encode($errors, JSON_UNESCAPED_UNICODE) : null;
             $stmtUpdate->execute([
-                ':total'     => $rowsProcessed,
+                ':total'     => $matched + $unmatched,
                 ':matched'   => $matched,
                 ':unmatched' => $unmatched,
                 ':errores'   => $erroresJson,
@@ -272,62 +259,98 @@ class BreakImportService
         return [
             'matched'         => $matched,
             'unmatched'       => $unmatched,
-            'rows_processed'  => $rowsProcessed,
-            'dates_found'     => count($dateGroups),
+            'skipped'         => $skipped,
             'errors'          => $errors,
             'unmatched_names' => $unmatchedNames,
         ];
     }
 
     /**
-     * Check if a cell value is effectively empty (null, empty string, or zero).
+     * Convert an Excel time fraction to minutes.
+     *
+     * Excel stores time as a fraction of a day (0.0 = midnight, 1.0 = 24h).
+     * Values like "12:50:00 AM" (50 min) are stored as ~0.034722.
+     * Multiply by 1440 (minutes/day) to get actual minutes.
+     *
+     * Also handles string values like "Libre" (return 0).
      */
-    private static function isEmptyValue(mixed $value): bool
-    {
-        if ($value === null || $value === '') {
-            return true;
-        }
-        if (is_numeric($value) && (float)$value == 0) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Parse HT (hours worked). Can be an integer or a day fraction (×24).
-     */
-    private static function parseHorasTrabajadas(mixed $value): float
+    private static function timeFractionToMinutes(mixed $value): float
     {
         if ($value === null || $value === '') {
             return 0.0;
         }
-        $num = (float)$value;
-        // If value is a small fraction (< 1), it's likely a day fraction
-        if ($num > 0 && $num < 1) {
-            return round($num * 24, 2);
+
+        // Handle non-numeric strings like "Libre"
+        if (!is_numeric($value)) {
+            return 0.0;
         }
-        return round($num, 2);
+
+        $fraction = (float)$value;
+
+        // If the value is already clearly in minutes (> 2 means > 48 hours as fraction)
+        // This shouldn't happen with proper Excel time values, but guard against it
+        if ($fraction >= 1.0) {
+            // Could be a raw minute value already (e.g., someone entered 50 instead of time)
+            // Excel time fractions are always < 1.0 for times under 24h
+            // For safety, if > 1 treat as minutes directly
+            return round($fraction, 2);
+        }
+
+        return round($fraction * 1440, 2);
     }
 
     /**
-     * Convert day fraction to minutes (×1440).
+     * Match an Excel name (e.g., "ALENCASTRO DELGADO BRIGITTE SCARLET")
+     * against the advisor lookup maps.
+     *
+     * Strategy:
+     * 1. Exact match on normalized full name
+     * 2. Fuzzy match: all words of the advisor appear in the Excel name
      */
-    private static function fractionToMinutes(mixed $value): float
-    {
-        if ($value === null || $value === '' || !is_numeric($value)) {
-            return 0.0;
-        }
-        return round((float)$value * 1440, 2);
-    }
+    private static function matchAdvisor(
+        string $excelName,
+        array $advisorByFullName,
+        array $advisorWords
+    ): ?array {
+        $normalized = mb_strtolower(trim($excelName));
 
-    /**
-     * Convert day fraction to seconds (×86400).
-     */
-    private static function fractionToSeconds(mixed $value): float
-    {
-        if ($value === null || $value === '' || !is_numeric($value)) {
-            return 0.0;
+        if ($normalized === '') {
+            return null;
         }
-        return round((float)$value * 86400, 2);
+
+        // 1. Exact match
+        if (isset($advisorByFullName[$normalized])) {
+            return $advisorByFullName[$normalized];
+        }
+
+        // 2. Fuzzy: all words of an advisor's name appear in the Excel name
+        $excelWords = preg_split('/\s+/', $normalized);
+        $excelWords = array_filter($excelWords, fn(string $w) => mb_strlen($w) > 1);
+
+        $bestMatch = null;
+        $bestScore = 0;
+
+        foreach ($advisorWords as $entry) {
+            $advWords = $entry['words'];
+            if (empty($advWords)) {
+                continue;
+            }
+
+            // Check how many advisor words appear in Excel name
+            $matchCount = 0;
+            foreach ($advWords as $word) {
+                if (in_array($word, $excelWords, true)) {
+                    $matchCount++;
+                }
+            }
+
+            // All advisor words must appear in Excel name
+            if ($matchCount === count($advWords) && $matchCount > $bestScore) {
+                $bestScore = $matchCount;
+                $bestMatch = $entry['advisor'];
+            }
+        }
+
+        return $bestMatch;
     }
 }

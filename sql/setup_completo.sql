@@ -48,8 +48,14 @@
 \echo '>>> 13/14 Migracion: permiso settings.edit...'
 \i migrations/009_settings_edit_permission.sql
 
-\echo '>>> 14/14 Migracion: modulo cumplimiento breaks...'
+\echo '>>> 14/16 Migracion: modulo cumplimiento breaks...'
 \i migrations/010_break_compliance.sql
+
+\echo '>>> 15/16 Migracion: reglas de break y datos diarios...'
+\i migrations/011_break_rules_and_daily_data.sql
+
+\echo '>>> 16/16 Migracion: break imports por fecha...'
+\i migrations/012_break_imports_date_based.sql
 
 \echo ''
 \echo '============================================'

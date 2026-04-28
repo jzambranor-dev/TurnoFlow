@@ -65,32 +65,10 @@ ob_start();
                     </select>
                 </div>
 
-                <!-- Month / Year selectors -->
-                <div class="form-grid-2" style="margin-bottom:20px;">
-                    <div class="form-group" style="margin-bottom:0;">
-                        <label for="import_month" class="form-label">Mes <span class="required">*</span></label>
-                        <select name="month" id="import_month" class="form-control" required>
-                            <?php
-                            $monthNames = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-                                           'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-                            $curMonth = (int)date('n');
-                            for ($m = 1; $m <= 12; $m++):
-                            ?>
-                            <option value="<?= $m ?>" <?= $m === $curMonth ? 'selected' : '' ?>><?= $monthNames[$m] ?></option>
-                            <?php endfor; ?>
-                        </select>
-                    </div>
-                    <div class="form-group" style="margin-bottom:0;">
-                        <label for="import_year" class="form-label">Ano <span class="required">*</span></label>
-                        <select name="year" id="import_year" class="form-control" required>
-                            <?php
-                            $curYear = (int)date('Y');
-                            for ($y = $curYear - 1; $y <= $curYear + 1; $y++):
-                            ?>
-                            <option value="<?= $y ?>" <?= $y === $curYear ? 'selected' : '' ?>><?= $y ?></option>
-                            <?php endfor; ?>
-                        </select>
-                    </div>
+                <!-- Date picker -->
+                <div class="form-group">
+                    <label for="import_fecha" class="form-label">Fecha <span class="required">*</span></label>
+                    <input type="date" name="fecha" id="import_fecha" class="form-control" value="<?= date('Y-m-d') ?>" required>
                 </div>
 
                 <!-- File Upload -->
@@ -144,7 +122,7 @@ ob_start();
                     <span>Formato esperado</span>
                 </div>
                 <div class="info-content">
-                    <p>El archivo debe ser el reporte de excesos de break con la siguiente estructura:</p>
+                    <p>El archivo debe contener la hoja BREAK con datos diarios por asesor:</p>
                     <div class="format-table-wrapper">
                         <table class="format-table">
                             <thead>
@@ -156,31 +134,16 @@ ob_start();
                             <tbody>
                                 <tr>
                                     <td>Hoja</td>
-                                    <td><code>EXCESOS BREAK</code></td>
+                                    <td><code>BREAK</code></td>
                                 </tr>
                                 <tr>
-                                    <td>Col. A</td>
-                                    <td>Usuario (login)</td>
-                                </tr>
-                                <tr>
-                                    <td>Col. B</td>
-                                    <td>Nombre completo</td>
-                                </tr>
-                                <tr>
-                                    <td>Col. C</td>
-                                    <td>Cedula</td>
-                                </tr>
-                                <tr>
-                                    <td>Col. D</td>
-                                    <td>Fecha nacimiento</td>
-                                </tr>
-                                <tr>
-                                    <td>Col. E+</td>
-                                    <td>Datos por fecha (HT, BK Normal, Break ICBM, Exceso)</td>
+                                    <td>Columnas</td>
+                                    <td>USUARIO, AGENTES, TOTAL HORAS, HORARIO, BREAK, BREAK USADO, BREAK DISPONIBLE</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
+                    <p style="margin-top:12px;margin-bottom:0;">El sistema matchea asesores por nombre completo.</p>
                 </div>
             </div>
 
@@ -192,10 +155,10 @@ ob_start();
                 </div>
                 <div class="info-content">
                     <ul class="tips-list">
-                        <li>El sistema <strong>matchea asesores por cedula</strong> entre el Excel y la base de datos.</li>
-                        <li>Si un asesor no tiene cedula registrada o no coincide, aparecera como <strong>no matcheado</strong>.</li>
-                        <li>Los datos existentes para el mismo periodo seran <strong>reemplazados</strong> al reimportar.</li>
-                        <li>Las columnas de fecha deben contener las filas: HT, BK Normal, Break ICBM y Exceso.</li>
+                        <li>El sistema <strong>matchea asesores por nombre completo</strong> entre el Excel y la base de datos.</li>
+                        <li>Si un asesor no coincide por nombre, aparecera como <strong>no matcheado</strong>.</li>
+                        <li>Los datos existentes para la misma fecha seran <strong>reemplazados</strong> al reimportar.</li>
+                        <li>Cada fila del Excel representa un asesor con sus datos de break del dia.</li>
                     </ul>
                 </div>
             </div>
@@ -208,8 +171,8 @@ ob_start();
     if ($importResults):
         $matched = $importResults['matched'] ?? 0;
         $unmatched = $importResults['unmatched'] ?? 0;
-        $dates = $importResults['dates'] ?? 0;
-        $unmatchedList = $importResults['unmatched_list'] ?? [];
+        $skipped = $importResults['skipped'] ?? 0;
+        $unmatchedList = $importResults['unmatched_names'] ?? [];
         $errors = $importResults['errors'] ?? [];
     ?>
     <div class="results-section">
@@ -237,11 +200,11 @@ ob_start();
             </div>
             <div class="stat-mini accent-blue">
                 <div class="stat-icon" style="background:#eff6ff;color:#2563eb;">
-                    <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
+                    <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>
                 </div>
                 <div class="stat-content">
-                    <span class="stat-value"><?= $dates ?></span>
-                    <span class="stat-label">Fechas</span>
+                    <span class="stat-value"><?= $skipped ?></span>
+                    <span class="stat-label">Omitidos</span>
                 </div>
             </div>
         </div>
@@ -256,7 +219,7 @@ ob_start();
             <div class="errors-list" id="unmatchedList" style="display:none;">
                 <?php foreach ($unmatchedList as $um): ?>
                 <div class="error-row">
-                    <span class="error-row-num"><?= htmlspecialchars($um['cedula'] ?? '?') ?></span>
+                    <span class="error-row-num"><?= htmlspecialchars($um['usuario'] ?? '?') ?></span>
                     <span class="error-row-msg"><?= htmlspecialchars($um['nombre'] ?? 'Desconocido') ?></span>
                 </div>
                 <?php endforeach; ?>

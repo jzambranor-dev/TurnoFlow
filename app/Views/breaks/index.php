@@ -7,14 +7,9 @@
 $pageTitle = 'Cumplimiento de Breaks';
 $currentPage = 'breaks';
 
-$monthNames = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-               'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-
 $selectedCampaign = $selectedCampaign ?? 0;
-$selectedYear = $selectedYear ?? (int)date('Y');
-$selectedMonth = $selectedMonth ?? (int)date('n');
+$selectedDate = $selectedDate ?? date('Y-m-d');
 $cruceData = $cruceData ?? [];
-$duracionBreakMin = $duracionBreakMin ?? 0;
 $importInfo = $importInfo ?? null;
 
 ob_start();
@@ -38,7 +33,7 @@ ob_start();
                 Importar Excel
             </a>
             <?php if ($selectedCampaign > 0 && !empty($cruceData)): ?>
-            <a href="<?= BASE_URL ?>/breaks/export?campaign_id=<?= $selectedCampaign ?>&year=<?= $selectedYear ?>&month=<?= $selectedMonth ?>" class="btn btn-success">
+            <a href="<?= BASE_URL ?>/breaks/export?campaign_id=<?= $selectedCampaign ?>&fecha=<?= urlencode($selectedDate) ?>" class="btn btn-success">
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width:18px;height:18px;"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
                 Exportar
             </a>
@@ -60,18 +55,8 @@ ob_start();
                     </option>
                     <?php endforeach; ?>
                 </select>
-                <label for="month" style="font-weight: 600; white-space: nowrap;">Mes:</label>
-                <select name="month" id="month" class="filter-select" style="min-width:140px;">
-                    <?php for ($m = 1; $m <= 12; $m++): ?>
-                    <option value="<?= $m ?>" <?= $selectedMonth === $m ? 'selected' : '' ?>><?= $monthNames[$m] ?></option>
-                    <?php endfor; ?>
-                </select>
-                <label for="year" style="font-weight: 600; white-space: nowrap;">Ano:</label>
-                <select name="year" id="year" class="filter-select" style="min-width:100px;">
-                    <?php for ($y = (int)date('Y') - 1; $y <= (int)date('Y') + 1; $y++): ?>
-                    <option value="<?= $y ?>" <?= $selectedYear === $y ? 'selected' : '' ?>><?= $y ?></option>
-                    <?php endfor; ?>
-                </select>
+                <label for="fecha" style="font-weight: 600; white-space: nowrap;">Fecha:</label>
+                <input type="date" name="fecha" id="fecha" class="filter-select" value="<?= htmlspecialchars($selectedDate) ?>" style="min-width:160px;">
                 <button type="submit" class="btn btn-primary" style="padding: 8px 20px;">Consultar</button>
             </div>
         </form>
@@ -84,8 +69,8 @@ ob_start();
             <div class="empty-state-icon">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
             </div>
-            <h5>Selecciona una campana y periodo</h5>
-            <p>Elige una campana y el mes/ano para ver el reporte de cumplimiento de breaks.</p>
+            <h5>Selecciona una campana y fecha</h5>
+            <p>Elige una campana y la fecha para ver el reporte de cumplimiento de breaks.</p>
         </div>
     </div>
 
@@ -96,8 +81,8 @@ ob_start();
             <div class="empty-state-icon">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>
             </div>
-            <h5>No hay datos de break para este periodo</h5>
-            <p>Importa el Excel desde el boton Importar para cargar los datos de break real.</p>
+            <h5>No hay datos de break para esta fecha</h5>
+            <p>No hay datos de break para esta fecha. Importa el Excel.</p>
             <a href="<?= BASE_URL ?>/breaks/import" class="btn btn-primary">
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width:18px;height:18px;"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
                 Importar Excel
@@ -117,13 +102,13 @@ ob_start();
     <!-- Stats -->
     <?php
     $totalAsesores = count($cruceData);
-    $totalPlanned = 0;
-    $totalActual = 0;
+    $totalAsignado = 0;
+    $totalUsado = 0;
     $totalExceso = 0;
     foreach ($cruceData as $row) {
-        $totalPlanned += ($row['planned_slots'] ?? 0) * $duracionBreakMin;
-        $totalActual += ($row['actual_minutes'] ?? 0);
-        $totalExceso += ($row['exceso_excel'] ?? 0);
+        $totalAsignado += ($row['break_asignado_min'] ?? 0);
+        $totalUsado += ($row['break_usado_min'] ?? 0);
+        $totalExceso += ($row['exceso_min'] ?? 0);
     }
     $formatTime = function($min) {
         $h = floor(abs($min) / 60);
@@ -139,7 +124,7 @@ ob_start();
             </div>
             <div class="stat-content">
                 <span class="stat-value"><?= $totalAsesores ?></span>
-                <span class="stat-label">Total Asesores</span>
+                <span class="stat-label">Asesores con datos</span>
             </div>
         </div>
         <div class="stat-mini accent-purple">
@@ -147,8 +132,8 @@ ob_start();
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
             </div>
             <div class="stat-content">
-                <span class="stat-value"><?= $formatTime($totalPlanned) ?></span>
-                <span class="stat-label">Break Planificado</span>
+                <span class="stat-value"><?= $formatTime($totalAsignado) ?></span>
+                <span class="stat-label">Break Asignado</span>
             </div>
         </div>
         <div class="stat-mini accent-orange">
@@ -156,8 +141,8 @@ ob_start();
                 <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
             </div>
             <div class="stat-content">
-                <span class="stat-value"><?= $formatTime($totalActual) ?></span>
-                <span class="stat-label">Break Real</span>
+                <span class="stat-value"><?= $formatTime($totalUsado) ?></span>
+                <span class="stat-label">Break Usado</span>
             </div>
         </div>
         <div class="stat-mini <?= $totalExceso > 0 ? 'accent-red' : 'accent-green' ?>">
@@ -182,7 +167,7 @@ ob_start();
         <div class="panel-header">
             <div class="panel-title">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
-                Detalle por Asesor &mdash; <?= $monthNames[$selectedMonth] ?> <?= $selectedYear ?>
+                Detalle por Asesor &mdash; <?= htmlspecialchars($selectedDate) ?>
                 <span class="panel-counter"><?= $totalAsesores ?></span>
             </div>
             <div class="search-box">
@@ -196,41 +181,50 @@ ob_start();
                 <thead>
                     <tr>
                         <th>Asesor</th>
-                        <th>Cedula</th>
-                        <th class="text-center">Break Plan.</th>
-                        <th class="text-center">Break Real</th>
+                        <th>Usuario</th>
+                        <th>Horario</th>
+                        <th class="text-center">Horas</th>
+                        <th class="text-center">Break Asignado</th>
+                        <th class="text-center">Break Usado</th>
+                        <th class="text-center">Disponible</th>
                         <th class="text-center">Exceso</th>
-                        <th class="text-center">Horas Trab.</th>
-                        <th class="text-center">Dias</th>
                         <th class="text-center">Estado</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php
-                    $sumPlanned = 0;
-                    $sumActual = 0;
+                    $sumAsignado = 0;
+                    $sumUsado = 0;
+                    $sumDisponible = 0;
                     $sumExceso = 0;
                     $sumHoras = 0;
-                    $sumDias = 0;
                     foreach ($cruceData as $i => $row):
-                        $breakPlan = ($row['planned_slots'] ?? 0) * $duracionBreakMin;
-                        $breakReal = $row['actual_minutes'] ?? 0;
-                        $exceso = $row['exceso_excel'] ?? 0;
+                        $breakAsignado = $row['break_asignado_min'] ?? 0;
+                        $breakUsado = $row['break_usado_min'] ?? 0;
+                        $disponible = $row['break_disponible_min'] ?? 0;
+                        $exceso = $row['exceso_min'] ?? 0;
                         $horasTrab = $row['horas_trabajadas'] ?? 0;
-                        $dias = $row['dias_con_datos'] ?? 0;
-                        $sumPlanned += $breakPlan;
-                        $sumActual += $breakReal;
+                        $horario = $row['horario_texto'] ?? '-';
+                        $usuario = $row['usuario_excel'] ?? '-';
+                        $sumAsignado += $breakAsignado;
+                        $sumUsado += $breakUsado;
+                        $sumDisponible += $disponible;
                         $sumExceso += $exceso;
                         $sumHoras += $horasTrab;
-                        $sumDias += $dias;
+
+                        // Exceso color
+                        if ($exceso <= 0) {
+                            $excesoColor = 'var(--corp-success)';
+                        } elseif ($exceso <= 5) {
+                            $excesoColor = '#d97706';
+                        } else {
+                            $excesoColor = 'var(--corp-danger)';
+                        }
 
                         // Status badge
                         if ($exceso <= 0) {
                             $badgeClass = 'badge-success';
                             $badgeText = 'OK';
-                        } elseif ($exceso <= 5) {
-                            $badgeClass = 'badge-warning';
-                            $badgeText = 'Leve';
                         } else {
                             $badgeClass = 'badge-danger';
                             $badgeText = 'Exceso';
@@ -246,18 +240,19 @@ ob_start();
                                 ?>
                                 <div class="avatar" style="background: <?= $avatarColor ?>;"><?= $initials ?></div>
                                 <div class="cell-stack">
-                                    <span class="cell-main"><?= htmlspecialchars(($row['apellidos'] ?? '') . ', ' . ($row['nombres'] ?? '')) ?></span>
+                                    <span class="cell-main"><?= htmlspecialchars(($row['nombres'] ?? '') . ' ' . ($row['apellidos'] ?? '')) ?></span>
                                 </div>
                             </div>
                         </td>
-                        <td><span class="cell-mono"><?= htmlspecialchars($row['cedula'] ?? '-') ?></span></td>
-                        <td class="text-center"><?= $breakPlan ?> min</td>
-                        <td class="text-center"><?= $breakReal ?> min</td>
-                        <td class="text-center" style="font-weight:600;color:<?= $exceso > 0 ? 'var(--corp-danger)' : 'var(--corp-success)' ?>;">
-                            <?= $exceso > 0 ? '+' : '' ?><?= $exceso ?> min
-                        </td>
+                        <td><span class="cell-mono"><?= htmlspecialchars($usuario) ?></span></td>
+                        <td><span class="cell-mono" style="font-size:0.8rem;"><?= htmlspecialchars($horario) ?></span></td>
                         <td class="text-center"><?= number_format($horasTrab, 1) ?>h</td>
-                        <td class="text-center"><?= $dias ?></td>
+                        <td class="text-center"><?= $breakAsignado ?>m</td>
+                        <td class="text-center"><?= $breakUsado ?>m</td>
+                        <td class="text-center"><?= $disponible ?>m</td>
+                        <td class="text-center" style="font-weight:600;color:<?= $excesoColor ?>;">
+                            <?= $exceso > 0 ? '+' : '' ?><?= $exceso ?>m
+                        </td>
                         <td class="text-center">
                             <span class="badge <?= $badgeClass ?>"><?= $badgeText ?></span>
                         </td>
@@ -268,13 +263,14 @@ ob_start();
                     <tr>
                         <td style="font-weight:700;">Total</td>
                         <td></td>
-                        <td class="text-center" style="font-weight:700;"><?= $sumPlanned ?> min</td>
-                        <td class="text-center" style="font-weight:700;"><?= $sumActual ?> min</td>
-                        <td class="text-center" style="font-weight:700;color:<?= $sumExceso > 0 ? 'var(--corp-danger)' : 'var(--corp-success)' ?>;">
-                            <?= $sumExceso > 0 ? '+' : '' ?><?= $sumExceso ?> min
-                        </td>
+                        <td></td>
                         <td class="text-center" style="font-weight:700;"><?= number_format($sumHoras, 1) ?>h</td>
-                        <td class="text-center" style="font-weight:700;"><?= $sumDias ?></td>
+                        <td class="text-center" style="font-weight:700;"><?= $sumAsignado ?>m</td>
+                        <td class="text-center" style="font-weight:700;"><?= $sumUsado ?>m</td>
+                        <td class="text-center" style="font-weight:700;"><?= $sumDisponible ?>m</td>
+                        <td class="text-center" style="font-weight:700;color:<?= $sumExceso > 0 ? 'var(--corp-danger)' : 'var(--corp-success)' ?>;">
+                            <?= $sumExceso > 0 ? '+' : '' ?><?= $sumExceso ?>m
+                        </td>
                         <td></td>
                     </tr>
                 </tfoot>
