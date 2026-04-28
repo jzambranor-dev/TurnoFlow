@@ -1553,19 +1553,19 @@ class ScheduleBuilder
                         if ($campanaEsPresencial && $modalidadAdv === 'teletrabajo') continue;
 
                         // Si el asesor es mixto y la campaña es presencial:
-                        // verificar que no tenga horas de teletrabajo ese día en su campaña origen
-                        // (si ya está trabajando de casa, no puede venir presencial)
+                        // verificar que no tenga horas de MADRUGADA (0-6) ese día
+                        // (si trabaja madrugada, está en teletrabajo/casa y no puede ir presencial)
+                        // Horas 19-23 no cuentan como teletrabajo — son horario extendido
                         if ($campanaEsPresencial && $modalidadAdv === 'mixto') {
                             $horasOrigenHoy = $this->advisorSchedule[$advId][$fecha] ?? [];
-                            $tieneTeletrabajoHoy = false;
+                            $tieneMadrugadaHoy = false;
                             foreach (array_keys($horasOrigenHoy) as $hOrigen) {
-                                // Horas fuera del rango presencial = teletrabajo
-                                if ($hOrigen < $iniPres || $hOrigen >= $finPres) {
-                                    $tieneTeletrabajoHoy = true;
+                                if ($hOrigen >= 0 && $hOrigen <= 6) {
+                                    $tieneMadrugadaHoy = true;
                                     break;
                                 }
                             }
-                            if ($tieneTeletrabajoHoy) continue;
+                            if ($tieneMadrugadaHoy) continue;
                         }
 
                         // Horas ya asignadas hoy en ESTA campaña
